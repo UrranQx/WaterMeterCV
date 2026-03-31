@@ -1,1 +1,4 @@
 /WaterMetricsDATA/
+/SystemDesignNotes/
+.venv*/
+.vscode/
