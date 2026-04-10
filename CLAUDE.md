@@ -32,6 +32,11 @@ uv run python
 
 Полный гайд по Colab (PAT, Drive, синхронизация весов, ветки): `docs/colab-workflow.md`
 
+## Notebooks
+
+Jupyter format: `nbformat_minor: 4` (не 5 — требует cell id), `language_info.version: "3.13.0"`.
+Source cells можно хранить как строку или список строк — оба формата валидны.
+
 ## Architecture
 
 - `models/data/` — unified dataset loaders (both datasets → `UnifiedSample`)
@@ -42,6 +47,15 @@ uv run python
 - `src/` — FastAPI service layer (future, out of current scope)
 - `configs/` — YAML hyperparams (`configs/default.yaml`)
 - `results/` — metrics CSVs, `comparison.md`
+
+## Evaluation Gotchas
+
+GT строки из utility-meter: `str(int(sample.value))` срезает ведущие нули (`00482` → `482`).
+Считать FSA/CER в двух режимах: raw (как есть) и normalized (`lstrip("0")`).
+Baseline результат: yolo11n mAP50=0.617, FSA=0.047, combined=0.504 — низкий FSA частично из-за этого.
+Аннотации utility-meter могут быть несогласованы с поворотами изображений (видно на val_batch labels).
+
+`results/`: PNG/JPG gitignored, JSON/CSV метрики коммитятся в git.
 
 ## Datasets (`WaterMetricsDATA/`, gitignored)
 
