@@ -22,6 +22,16 @@ uv run pytest tests/path/test_file.py::test_name -v
 uv run python
 ```
 
+## Environments
+
+| Среда | Команда | Примечание |
+|---|---|---|
+| Ноутбук (CPU) | `uv sync` | CPU torch с PyPI |
+| ПК с GPU (CUDA 12.8) | `uv sync --extra cuda` | CUDA torch с pytorch.org/whl/cu128 |
+| Google Colab | `pip install -q ultralytics albumentations rapidfuzz shapely` | torch предустановлен, `uv sync` не запускать |
+
+Полный гайд по Colab (PAT, Drive, синхронизация весов, ветки): `docs/colab-workflow.md`
+
 ## Architecture
 
 - `models/data/` — unified dataset loaders (both datasets → `UnifiedSample`)

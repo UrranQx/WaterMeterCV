@@ -21,3 +21,10 @@ evaluation:
 # 0: Digits (parent), 1-10: digits 0-9, 11: Reading Digit, 12: black, 13: red, 14: white
 utility_meter_digit_classes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]  # COCO ids for 0-9
 utility_meter_roi_class: 11  # "Reading Digit" = ROI bbox
+
+# Google Colab paths (Google Drive mounted at /content/drive)
+colab:
+  drive_base: "/content/drive/MyDrive/WaterMeterCV"
+  data_base:  "/content/drive/MyDrive/WaterMeterCV/WaterMetricsDATA"
+  weights_dir: "/content/drive/MyDrive/WaterMeterCV/weights"
+  results_dir: "/content/drive/MyDrive/WaterMeterCV/results"
