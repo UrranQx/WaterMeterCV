@@ -1,0 +1,23 @@
+paths:
+  water_meter_dataset: "WaterMetricsDATA/waterMeterDataset/WaterMeters"
+  utility_meter_yolo: "WaterMetricsDATA/utility-meter-reading-dataset-for-automatic-reading-yolo.v4i.yolov11"
+  utility_meter_coco: "WaterMetricsDATA/utility-meter-reading-dataset-for-automatic-reading-yolo.v4i.coco"
+  weights_dir: "models/weights"
+  checkpoints_dir: "models/checkpoints"
+  results_dir: "results"
+
+training:
+  batch_size: 16
+  epochs: 50
+  learning_rate: 0.001
+  img_size: 640
+  device: "cuda"  # or "cpu"
+
+evaluation:
+  iou_threshold: 0.5
+  confidence_threshold: 0.25
+
+# COCO category mapping (utility-meter dataset)
+# 0: Digits (parent), 1-10: digits 0-9, 11: Reading Digit, 12: black, 13: red, 14: white
+utility_meter_digit_classes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]  # COCO ids for 0-9
+utility_meter_roi_class: 11  # "Reading Digit" = ROI bbox

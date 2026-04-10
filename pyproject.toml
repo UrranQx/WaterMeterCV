@@ -1,7 +1,7 @@
 [project]
 name = "watermetercv"
 version = "0.1.0"
-description = "Add your description here"
+description = "CV pipeline for water meter reading extraction"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -12,4 +12,16 @@ dependencies = [
     "torch>=2.11.0",
     "torchvision>=0.26.0",
     "ultralytics>=8.4.33",
+    "albumentations>=2.0.0",
+    "pyyaml>=6.0",
+    "opencv-python>=4.10.0",
+    "Pillow>=11.0.0",
+    "rapidfuzz>=3.0.0",  # replaces editdistance — has pre-built wheels for Python 3.13
+    "shapely>=2.0.0",
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0.0"]
+detectron2 = []  # not on PyPI; install manually: pip install detectron2 from facebookresearch repo
+transformers = ["transformers>=4.40.0", "sentencepiece>=0.2.0"]
+craft = []  # craft-text-detector is incompatible with opencv>=4.5; install manually when needed

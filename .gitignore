@@ -3,3 +3,10 @@
 .venv*/
 .vscode/
 .idea/
+models/weights/
+models/checkpoints/
+results/*.png
+results/*.jpg
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
