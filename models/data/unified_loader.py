@@ -31,7 +31,7 @@ def load_water_meter_dataset(root: Path) -> list[UnifiedSample]:
         reader = csv.DictReader(f)
         for row in reader:
             photo_name = row["photo_name"]
-            value = float(row["value"])
+            value = round(float(row["value"]), 3)
 
             location = ast.literal_eval(row["location"])
             polygon = [(pt["x"], pt["y"]) for pt in location["data"]]
