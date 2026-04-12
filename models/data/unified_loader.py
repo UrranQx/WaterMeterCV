@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import csv
 import ast
+import random
 
 
 @dataclass
@@ -50,6 +51,22 @@ def load_water_meter_dataset(root: Path) -> list[UnifiedSample]:
             ))
 
     return samples
+
+
+def load_water_meter_dataset_split(
+    root: Path,
+    train_ratio: float = 0.7,
+    seed: int = 42,
+) -> tuple[list[UnifiedSample], list[UnifiedSample]]:
+    """Deterministic train/test split of waterMeterDataset.
+
+    Returns (train_samples, test_samples).
+    """
+    all_samples = load_water_meter_dataset(root)
+    shuffled = all_samples.copy()
+    random.Random(seed).shuffle(shuffled)
+    split_idx = int(len(shuffled) * train_ratio)
+    return shuffled[:split_idx], shuffled[split_idx:]
 
 
 def load_utility_meter_dataset(root: Path, split: str = "train") -> list[UnifiedSample]:

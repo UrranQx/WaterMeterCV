@@ -3,6 +3,7 @@ from pathlib import Path
 from models.data.unified_loader import (
     load_water_meter_dataset,
     load_utility_meter_dataset,
+    load_water_meter_dataset_split,
     UnifiedSample,
 )
 
@@ -46,3 +47,28 @@ class TestUnifiedSample:
     def test_um_value_is_none_when_not_available(self, um_samples):
         s = um_samples[0]
         assert s.value is None or isinstance(s.value, float)
+
+
+class TestWaterMeterSplit:
+    def test_split_returns_two_lists(self):
+        train, test = load_water_meter_dataset_split(WM_PATH, train_ratio=0.7, seed=42)
+        assert isinstance(train, list)
+        assert isinstance(test, list)
+        assert len(train) > 0
+        assert len(test) > 0
+
+    def test_split_ratio_approximately_correct(self):
+        train, test = load_water_meter_dataset_split(WM_PATH, train_ratio=0.7, seed=42)
+        total = len(train) + len(test)
+        assert abs(len(train) / total - 0.7) < 0.01
+
+    def test_split_is_deterministic(self):
+        t1, _ = load_water_meter_dataset_split(WM_PATH, train_ratio=0.7, seed=42)
+        t2, _ = load_water_meter_dataset_split(WM_PATH, train_ratio=0.7, seed=42)
+        assert [s.image_path for s in t1] == [s.image_path for s in t2]
+
+    def test_split_no_overlap(self):
+        train, test = load_water_meter_dataset_split(WM_PATH, train_ratio=0.7, seed=42)
+        train_paths = {s.image_path for s in train}
+        test_paths = {s.image_path for s in test}
+        assert train_paths.isdisjoint(test_paths)
