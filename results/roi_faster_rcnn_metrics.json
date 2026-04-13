@@ -8,4 +8,17 @@
     "n_test": 6
   },
   "water_meter": {
-    "mean_iou": 
+    "mean_iou": 0.9397,
+    "detection_rate": 1.0,
+    "avg_inference_ms": 405.4,
+    "n_train": 870,
+    "n_test": 374
+  },
+  "config": {
+    "max_iter_um": 3000,
+    "max_iter_wm": 5000,
+    "base_lr": 0.0025,
+    "ims_per_batch": 4
+  },
+  "run_date": "2026-04-13T17:11:56.159642"
+}
