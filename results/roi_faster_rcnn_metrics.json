@@ -1,0 +1,11 @@
+{
+  "method": "faster_rcnn",
+  "utility_meter": {
+    "mean_iou": 0.1375,
+    "detection_rate": 0.1667,
+    "avg_inference_ms": 145.1,
+    "n_train": 45,
+    "n_test": 6
+  },
+  "water_meter": {
+    "mean_iou": 
