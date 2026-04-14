@@ -2267,6 +2267,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rapidfuzz" },
     { name = "shapely" },
+    { name = "tqdm" },
     { name = "ultralytics" },
 ]
 
@@ -2318,6 +2319,7 @@ requires-dist = [
     { name = "torchvision", marker = "extra == 'cuda'", specifier = ">=0.22.0", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torchvision", marker = "extra == 'cuda'", specifier = ">=0.26.0", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torchvision", marker = "extra != 'cuda'", specifier = ">=0.26.0" },
+    { name = "tqdm", specifier = ">=4.67.3" },
     { name = "transformers", marker = "extra == 'transformers'", specifier = ">=4.40.0" },
     { name = "ultralytics", specifier = ">=8.4.33" },
     { name = "ultralytics", marker = "extra == 'colab'", specifier = ">=8.3.0" },

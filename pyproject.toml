@@ -18,6 +18,7 @@ dependencies = [
     "Pillow>=11.0.0",
     "rapidfuzz>=3.0.0",  # replaces editdistance — has pre-built wheels for Python 3.13
     "shapely>=2.0.0",
+    "tqdm>=4.67.3",
 ]
 
 [project.optional-dependencies]
