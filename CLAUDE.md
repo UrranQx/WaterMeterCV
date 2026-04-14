@@ -22,6 +22,21 @@ uv run pytest tests/path/test_file.py::test_name -v
 uv run python
 ```
 
+## Environments
+
+| Среда | Команда | Примечание |
+|---|---|---|
+| Ноутбук (CPU) | `uv sync` | CPU torch с PyPI |
+| ПК с GPU (CUDA 13.0) | `uv sync --extra cuda` | CUDA torch с pytorch.org/whl/cu130 |
+| Google Colab | `pip install -q ultralytics albumentations rapidfuzz shapely` | torch предустановлен, `uv sync` не запускать |
+
+Полный гайд по Colab (PAT, Drive, синхронизация весов, ветки): `docs/colab-workflow.md`
+
+## Notebooks
+
+Jupyter format: `nbformat_minor: 4` (не 5 — требует cell id), `language_info.version: "3.13.0"`.
+Source cells можно хранить как строку или список строк — оба формата валидны.
+
 ## Architecture
 
 - `models/data/` — unified dataset loaders (both datasets → `UnifiedSample`)
@@ -32,6 +47,27 @@ uv run python
 - `src/` — FastAPI service layer (future, out of current scope)
 - `configs/` — YAML hyperparams (`configs/default.yaml`)
 - `results/` — metrics CSVs, `comparison.md`
+
+## ROI Detection (feature/roi-detection — complete)
+
+Best model: **YOLO11n** (WM IoU=0.94, 100% detection, 23 ms) or **U-Net** (IoU=0.877, 5 ms).
+Full results and decisions: `docs/notes/roi-detection-findings.md`.
+
+**UM dataset is NOT suitable for ROI** — only 45/1552 images have ROI labels; all models fail.
+Do not use utility-meter for ROI training. WaterMeterDataset only.
+
+OCR prep: two paths — bbox crop (YOLO/Faster R-CNN) and polygon/perspective warp (U-Net mask).
+Both will be implemented and compared in `Notebooks/03_*`.
+Orientation fix: try 0° and 180° reads, keep valid integer result (orientation classifier is future work).
+
+## Evaluation Gotchas
+
+GT строки из utility-meter: `str(int(sample.value))` срезает ведущие нули (`00482` → `482`).
+Считать FSA/CER в двух режимах: raw (как есть) и normalized (`lstrip("0")`).
+Baseline результат: yolo11n mAP50=0.617, FSA=0.047, combined=0.504 — низкий FSA частично из-за этого.
+Аннотации utility-meter могут быть несогласованы с поворотами изображений (видно на val_batch labels).
+
+`results/`: PNG/JPG gitignored, JSON/CSV метрики коммитятся в git.
 
 ## Datasets (`WaterMetricsDATA/`, gitignored)
 

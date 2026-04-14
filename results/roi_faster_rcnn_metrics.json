@@ -1,0 +1,25 @@
+{
+  "method": "faster_rcnn_torchvision",
+  "utility_meter": {
+    "mean_iou": 0.0,
+    "detection_rate": 0.0,
+    "avg_inference_ms": 224.0,
+    "n_train": 45,
+    "n_test": 6
+  },
+  "water_meter": {
+    "mean_iou": 0.924,
+    "detection_rate": 1.0,
+    "avg_inference_ms": 207.6,
+    "n_train": 870,
+    "n_test": 374
+  },
+  "config": {
+    "epochs_um": 20,
+    "epochs_wm": 15,
+    "batch_size": 4,
+    "lr": 0.005,
+    "backbone": "resnet50_fpn"
+  },
+  "run_date": "2026-04-14T19:24:41.729380"
+}

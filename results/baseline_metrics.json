@@ -1,0 +1,23 @@
+{
+  "model_size": "yolo11n",
+  "run_name": "yolo11n_20260410_230900",
+  "primary_eval": {
+    "mAP50": 0.6179,
+    "mAP50_95": 0.3351,
+    "full_string_accuracy": 0.0466,
+    "per_digit_accuracy": 0.1014,
+    "CER": 0.8495,
+    "combined_score": 0.5036,
+    "avg_inference_ms": 23.7
+  },
+  "cross_dataset_eval": {
+    "wm_per_digit_accuracy": 0.0636
+  },
+  "config": {
+    "epochs": 50,
+    "batch_size": 16,
+    "img_size": 640,
+    "patience": 10
+  },
+  "run_date": "2026-04-11T00:34:29.304592"
+}
