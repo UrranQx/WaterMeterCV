@@ -70,7 +70,7 @@ def crop_roi_bbox(
 
 # ─── Dataset preparation ──────────────────────────────────────────────────────
 
-def prepare_ocr_crops(
+def prepare_ocr_crops( # TODO: Review this function and see it visualizations for sainty check
     wm_path: Path,
     um_yolo_path: Path,
     dst_root: Path,
