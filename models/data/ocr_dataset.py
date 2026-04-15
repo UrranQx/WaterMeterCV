@@ -70,30 +70,29 @@ def crop_roi_bbox(
 
 # ─── Dataset preparation ──────────────────────────────────────────────────────
 
-def prepare_ocr_crops( # TODO: Review this function and see it visualizations for sainty check
+def prepare_ocr_crops(
     wm_path: Path,
-    um_yolo_path: Path,
     dst_root: Path,
     train_ratio: float = 0.7,
     seed: int = 42,
     out_h: int = OUT_H,
     out_w: int = OUT_W,
 ) -> None:
-    """Create three OCR crop datasets under dst_root (idempotent).
+    """Create two WM OCR crop datasets under dst_root (idempotent).
 
     wm_polygon/  — WM perspective warp on roi_polygon
     wm_bbox/     — WM axis-aligned crop on polygon_to_bbox(roi_polygon)
-    um_bbox/     — UM axis-aligned crop on ROI class-10 bbox
+
+    UM is excluded — ROI detection on UM is unreliable (only 45/1552 have ROI).
 
     Each split: images/<stem>.png  +  labels.csv (filename, label)
     Skips images already present (safe to re-run).
     """
     from models.data.unified_loader import load_water_meter_dataset_split
-    from models.data.roi_dataset import polygon_to_bbox, filter_utility_meter_roi_samples
+    from models.data.roi_dataset import polygon_to_bbox
 
-    wm_path, um_yolo_path, dst_root = Path(wm_path), Path(um_yolo_path), Path(dst_root)
+    wm_path, dst_root = Path(wm_path), Path(dst_root)
 
-    # ── WM crops ─────────────────────────────────────────────────────────────
     wm_train, wm_test = load_water_meter_dataset_split(wm_path, train_ratio, seed)
 
     for split_name, samples in [("train", wm_train), ("test", wm_test)]:
@@ -122,50 +121,6 @@ def prepare_ocr_crops( # TODO: Review this function and see it visualizations fo
                 new_rows.append({"filename": fname, "label": str(int(s.value))})
 
             _append_csv(csv_path, new_rows)
-
-    # ── UM crops ─────────────────────────────────────────────────────────────
-    for split_name in ("train", "valid", "test"):
-        out_split = "test" if split_name in ("valid", "test") else "train"
-        img_dir  = dst_root / "um_bbox" / out_split / "images"
-        img_dir.mkdir(parents=True, exist_ok=True)
-        csv_path = dst_root / "um_bbox" / out_split / "labels.csv"
-
-        existing    = {r["filename"] for r in _read_csv(csv_path)}
-        roi_samples = filter_utility_meter_roi_samples(um_yolo_path, split_name)
-        labels_dir  = um_yolo_path / split_name / "labels"
-        new_rows: list[dict] = []
-
-        for img_path, roi_bbox in roi_samples:
-            fname = img_path.stem + ".png"
-            if fname in existing:
-                continue
-            # reconstruct label from digit bboxes sorted left-to-right by cx
-            label_file = labels_dir / (img_path.stem + ".txt")
-            digits: list[tuple[int, float]] = []
-            if label_file.exists():
-                with open(label_file) as f:
-                    for line in f:
-                        parts = line.strip().split()
-                        if len(parts) < 5:
-                            continue
-                        cls = int(parts[0])
-                        if cls > 9:
-                            continue
-                        digits.append((cls, float(parts[1])))
-            if not digits:
-                continue
-            digits.sort(key=lambda d: d[1])
-            raw = "".join(str(d[0]) for d in digits)
-            label = str(int(raw)) if raw.lstrip("0") else "0"
-
-            img = cv2.imread(str(img_path))
-            if img is None:
-                continue
-            crop = crop_roi_bbox(img, roi_bbox, out_h, out_w)
-            cv2.imwrite(str(img_dir / fname), crop)
-            new_rows.append({"filename": fname, "label": label})
-
-        _append_csv(csv_path, new_rows)
 
 
 def _read_csv(path: Path) -> list[dict]:
@@ -210,7 +165,7 @@ def load_um_digit_crops(
     split: str,
     crop_size: int = 32,
 ) -> list[tuple[np.ndarray, int]]:
-    """Return (crop_bgr crop_size×crop_size, digit_class 0–9) for every digit bbox in split."""
+    """Return (crop_bgr crop_size x crop_size, digit_class 0-9) for every digit bbox in split."""
     labels_dir = Path(yolo_path) / split / "labels"
     images_dir = Path(yolo_path) / split / "images"
     results = []

@@ -11,7 +11,6 @@ from models.data.ocr_dataset import (
 
 DATA_ROOT  = Path("WaterMetricsDATA")
 WM_PATH    = DATA_ROOT / "waterMeterDataset/WaterMeters"
-UM_YOLO    = DATA_ROOT / "utility-meter-reading-dataset-for-automatic-reading-yolo.v4i.yolov11"
 CROPS_ROOT = DATA_ROOT / "ocr_crops"
 
 
@@ -35,43 +34,37 @@ class TestCropHelpers:
 
 
 class TestPrepareOcrCrops:
-    def test_creates_all_three_datasets(self, tmp_path):
-        prepare_ocr_crops(WM_PATH, UM_YOLO, tmp_path)
-        for key in ("wm_polygon", "wm_bbox", "um_bbox"):
+    def test_creates_wm_datasets(self, tmp_path):
+        prepare_ocr_crops(WM_PATH, tmp_path)
+        for key in ("wm_polygon", "wm_bbox"):
             for split in ("train", "test"):
                 assert (tmp_path / key / split / "labels.csv").exists()
                 assert (tmp_path / key / split / "images").is_dir()
 
     def test_labels_csv_has_header(self, tmp_path):
-        prepare_ocr_crops(WM_PATH, UM_YOLO, tmp_path)
+        prepare_ocr_crops(WM_PATH, tmp_path)
         import csv
         with open(tmp_path / "wm_polygon" / "train" / "labels.csv") as f:
             header = next(csv.reader(f))
         assert header == ["filename", "label"]
 
     def test_wm_labels_are_digit_strings(self, tmp_path):
-        prepare_ocr_crops(WM_PATH, UM_YOLO, tmp_path)
+        prepare_ocr_crops(WM_PATH, tmp_path)
         samples = load_ocr_crops(tmp_path / "wm_polygon", "train")
         for _, label in samples[:10]:
             assert label.isdigit()
 
-    def test_um_labels_no_leading_zeros(self, tmp_path):
-        prepare_ocr_crops(WM_PATH, UM_YOLO, tmp_path)
-        samples = load_ocr_crops(tmp_path / "um_bbox", "train")
-        for _, label in samples[:10]:
-            assert label == str(int(label))
-
     def test_idempotent(self, tmp_path):
-        prepare_ocr_crops(WM_PATH, UM_YOLO, tmp_path)
+        prepare_ocr_crops(WM_PATH, tmp_path)
         n1 = len(load_ocr_crops(tmp_path / "wm_polygon", "train"))
-        prepare_ocr_crops(WM_PATH, UM_YOLO, tmp_path)  # second call
+        prepare_ocr_crops(WM_PATH, tmp_path)  # second call
         n2 = len(load_ocr_crops(tmp_path / "wm_polygon", "train"))
         assert n1 == n2
 
 
 class TestLoadOcrCrops:
     def test_returns_existing_paths(self, tmp_path):
-        prepare_ocr_crops(WM_PATH, UM_YOLO, tmp_path)
+        prepare_ocr_crops(WM_PATH, tmp_path)
         samples = load_ocr_crops(tmp_path / "wm_polygon", "train")
         assert len(samples) > 0
         for img_path, label in samples[:5]:
@@ -79,8 +72,7 @@ class TestLoadOcrCrops:
             assert label.isdigit()
 
     def test_wm_polygon_same_count_as_wm_bbox(self, tmp_path):
-        # Both WM paths have the same number of samples (same source images)
-        prepare_ocr_crops(WM_PATH, UM_YOLO, tmp_path)
+        prepare_ocr_crops(WM_PATH, tmp_path)
         n_poly = len(load_ocr_crops(tmp_path / "wm_polygon", "train"))
         n_bbox = len(load_ocr_crops(tmp_path / "wm_bbox", "train"))
         assert n_poly == n_bbox
