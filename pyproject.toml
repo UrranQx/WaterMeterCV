@@ -19,6 +19,7 @@ dependencies = [
     "rapidfuzz>=3.0.0",  # replaces editdistance — has pre-built wheels for Python 3.13
     "shapely>=2.0.0",
     "tqdm>=4.67.3",
+    "segmentation-models-pytorch>=0.5.0",
 ]
 
 [project.optional-dependencies]

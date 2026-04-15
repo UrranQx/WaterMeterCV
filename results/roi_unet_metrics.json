@@ -1,25 +1,25 @@
 {
   "method": "unet_segmentation",
   "utility_meter": {
-    "mean_iou": 0.0,
-    "detection_rate": 0.0,
-    "avg_inference_ms": 12.3,
+    "mean_iou": 0.0002,
+    "detection_rate": 0.1667,
+    "avg_inference_ms": 6.1,
     "n_train": 45,
     "n_test": 6
   },
   "water_meter": {
-    "mean_iou": 0.8773,
+    "mean_iou": 0.9325,
     "detection_rate": 1.0,
-    "avg_inference_ms": 5.0,
+    "avg_inference_ms": 6.3,
     "n_train": 870,
     "n_test": 374
   },
   "config": {
     "encoder": "resnet34",
-    "img_size": 256,
-    "epochs": 30,
-    "batch_size": 16,
+    "img_size": 512,
+    "epochs": 50,
+    "batch_size": 8,
     "lr": 0.0001
   },
-  "run_date": "2026-04-13T00:40:06.194893"
+  "run_date": "2026-04-15T04:10:03.830869"
 }
