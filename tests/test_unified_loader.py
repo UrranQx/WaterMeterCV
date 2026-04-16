@@ -31,6 +31,8 @@ class TestUnifiedSample:
         s = wm_samples[0]
         assert s.image_path.exists()
         assert isinstance(s.value, float)
+        assert isinstance(s.value_text, str)
+        assert len(s.value_text) > 0
         assert s.roi_polygon is not None
         assert len(s.roi_polygon) >= 3
 

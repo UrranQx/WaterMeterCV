@@ -20,6 +20,8 @@ dependencies = [
     "shapely>=2.0.0",
     "tqdm>=4.67.3",
     "segmentation-models-pytorch>=0.5.0",
+    "easyocr>=1.7.2",
+    "pytesseract>=0.3.13",
 ]
 
 [project.optional-dependencies]
