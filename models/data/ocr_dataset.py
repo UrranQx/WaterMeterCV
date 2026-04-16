@@ -14,10 +14,197 @@ from typing import Callable
 import csv
 import numpy as np
 import cv2
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 CHARSET = "0123456789"   # 10 digits; CTC blank = index 10
 OUT_H   = 64
 OUT_W   = 256
+
+LABEL_MODE_SOURCE = "source"
+LABEL_MODE_WM_FRACTION_AWARE = "wm_fraction_aware"
+
+
+def value_text_to_ocr_label(value_text: str) -> str:
+    """Convert value text to OCR target label.
+
+    Current OCR charset is digits-only, so separators are removed while keeping
+    all integer and fractional digits (e.g. "595.825" -> "595825").
+    """
+    return "".join(ch for ch in str(value_text) if ch.isdigit())
+
+
+def _split_value_text_parts(value_text: str) -> tuple[str, str]:
+    """Split numeric text into integer/fraction digit parts.
+
+    Only digits are kept in each part; separator is normalized to ".".
+    """
+    text = str(value_text).strip().replace(",", ".")
+    if not text:
+        return "", ""
+
+    if "." in text:
+        int_part, frac_part = text.split(".", 1)
+    else:
+        int_part, frac_part = text, ""
+
+    int_digits = "".join(ch for ch in int_part if ch.isdigit())
+    frac_digits = "".join(ch for ch in frac_part if ch.isdigit())
+    if not int_digits and frac_digits:
+        int_digits = "0"
+    return int_digits, frac_digits
+
+
+def normalize_wm_value_text_for_ocr(
+    value_text: str,
+    has_fractional_red: bool | None = None,
+) -> str:
+    """Normalize WM value text for OCR labels with fraction-aware rules.
+
+    Rules derived from dataset conventions:
+    - 3+ fractional digits: keep as-is.
+    - 2 fractional digits: assume hidden 3rd drum is 0 and append one zero.
+    - 1 non-zero fractional digit: treat as abbreviated fraction and append two zeros.
+    - 1 zero fractional digit (".0"):
+      * if has_fractional_red is False -> interpret as integer meter (drop fraction)
+      * if has_fractional_red is True  -> keep full hidden fraction as "000"
+      * if unknown -> preserve source ".0"
+    """
+    int_digits, frac_digits = _split_value_text_parts(value_text)
+    if not int_digits and not frac_digits:
+        return ""
+
+    if len(frac_digits) >= 3:
+        frac_norm = frac_digits
+    elif len(frac_digits) == 2:
+        frac_norm = frac_digits + "0"
+    elif len(frac_digits) == 1:
+        if frac_digits != "0":
+            frac_norm = frac_digits + "00"
+        elif has_fractional_red is False:
+            frac_norm = ""
+        elif has_fractional_red is True:
+            frac_norm = "000"
+        else:
+            frac_norm = frac_digits
+    else:
+        frac_norm = ""
+
+    if frac_norm:
+        return f"{int_digits}.{frac_norm}"
+    return int_digits
+
+
+def _normalize_legacy_float_value(raw_value: float) -> str | None:
+    """Legacy fallback for samples that have numeric value but no value_text.
+
+    Primary path uses sample.value_text and keeps all source digits.
+    """
+    if raw_value is None:
+        return None
+    text = str(raw_value).strip().replace(",", ".")
+    if not text:
+        return None
+    try:
+        dec = Decimal(text).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError):
+        return None
+    norm = format(dec, "f")
+    if "." in norm:
+        norm = norm.rstrip("0").rstrip(".")
+    return norm if norm else None
+
+
+def sample_to_ocr_label(
+    sample,
+    label_mode: str = LABEL_MODE_SOURCE,
+    has_fractional_red: bool | None = None,
+) -> str:
+    """Build stable OCR label from UnifiedSample value/value_text.
+
+    label_mode:
+      - "source": keep all source digits exactly as annotated.
+      - "wm_fraction_aware": apply WM-specific decimal normalization rules.
+    """
+    if label_mode not in {LABEL_MODE_SOURCE, LABEL_MODE_WM_FRACTION_AWARE}:
+        raise ValueError(
+            f"Unsupported label_mode: {label_mode!r}. "
+            f"Expected one of: {LABEL_MODE_SOURCE!r}, {LABEL_MODE_WM_FRACTION_AWARE!r}"
+        )
+
+    raw_text = getattr(sample, "value_text", None)
+    if raw_text is not None:
+        if label_mode == LABEL_MODE_WM_FRACTION_AWARE:
+            norm_text = normalize_wm_value_text_for_ocr(
+                raw_text,
+                has_fractional_red=has_fractional_red,
+            )
+            return value_text_to_ocr_label(norm_text)
+        return value_text_to_ocr_label(raw_text)
+
+    raw_value = getattr(sample, "value", None)
+    norm = _normalize_legacy_float_value(raw_value)
+    if norm is None:
+        return ""
+    return value_text_to_ocr_label(norm)
+
+
+def _estimate_fractional_red_presence(
+    image_bgr: np.ndarray,
+    polygon: list[tuple[float, float]] | None,
+    min_ratio: float = 0.0012,
+    min_pixels: int = 24,
+) -> bool | None:
+    """Estimate whether the fractional (right) meter area contains red digits.
+
+    Returns True/False when estimation is possible, otherwise None.
+    """
+    if image_bgr is None or image_bgr.size == 0 or polygon is None or len(polygon) < 3:
+        return None
+
+    h, w = image_bgr.shape[:2]
+    pts = []
+    for x_norm, y_norm in polygon:
+        x = int(round(float(np.clip(x_norm, 0.0, 1.0)) * max(w - 1, 1)))
+        y = int(round(float(np.clip(y_norm, 0.0, 1.0)) * max(h - 1, 1)))
+        pts.append((x, y))
+
+    if len(pts) < 3:
+        return None
+
+    poly = np.array(pts, dtype=np.int32)
+    if cv2.contourArea(poly) <= 1.0:
+        return None
+
+    poly_mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.fillPoly(poly_mask, [poly], 255)
+
+    x, y, bw, bh = cv2.boundingRect(poly)
+    if bw <= 0 or bh <= 0:
+        return None
+    right_x = x + int(round(0.55 * bw))
+    right_x = max(x, min(x + bw, right_x))
+
+    right_mask = np.zeros((h, w), dtype=np.uint8)
+    right_mask[y : y + bh, right_x : x + bw] = 255
+    roi_mask = (poly_mask > 0) & (right_mask > 0)
+
+    roi_pixels = int(np.count_nonzero(roi_mask))
+    if roi_pixels < 32:
+        return None
+
+    hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+    h_ch, s_ch, v_ch = cv2.split(hsv)
+    b_ch, g_ch, r_ch = cv2.split(image_bgr)
+
+    red_hue = (h_ch <= 12) | (h_ch >= 168)
+    sat_ok = s_ch >= 70
+    val_ok = v_ch >= 40
+    dominance = (r_ch.astype(np.int16) - np.maximum(g_ch, b_ch).astype(np.int16)) >= 18
+
+    red_mask = red_hue & sat_ok & val_ok & dominance & roi_mask
+    red_pixels = int(np.count_nonzero(red_mask))
+    coverage = float(red_pixels) / float(max(roi_pixels, 1))
+    return bool(red_pixels >= int(min_pixels) and coverage >= float(min_ratio))
 
 
 # ─── Rotation & corner helpers ───────────────────────────────────────────────
@@ -409,6 +596,8 @@ def prepare_ocr_crops(
     out_h: int = OUT_H,
     out_w: int = OUT_W,
     roi_detector: Callable[[np.ndarray], tuple[float, float, float, float] | None] | None = None,
+    fallback_to_gt_on_miss: bool = False,
+    label_mode: str = LABEL_MODE_SOURCE,
 ) -> None:
     """Create two WM OCR crop datasets under dst_root (idempotent).
 
@@ -417,8 +606,15 @@ def prepare_ocr_crops(
                    If *roi_detector* is provided (callable: img_bgr → (cx,cy,w,h)|None),
                    it is used to get the bbox (e.g. YOLO / Faster R-CNN inference).
                    Otherwise falls back to the GT polygon-derived bbox.
+                   If detector misses and *fallback_to_gt_on_miss* is True,
+                   GT polygon-derived bbox is used instead of skipping.
                    In both cases rotation is estimated from the crop content
                    (projection profile) — no polygon annotation needed.
+
+        Label modes:
+            - source: keep all source digits as annotated.
+            - wm_fraction_aware: WM-specific decimal normalization that can infer
+                hidden trailing zeros and handle '.0' using red-fraction presence.
 
     UM is excluded — ROI detection on UM is unreliable (only 45/1552 have ROI).
 
@@ -430,6 +626,13 @@ def prepare_ocr_crops(
     from models.data.unified_loader import load_water_meter_dataset_split
     from models.data.roi_dataset import polygon_to_bbox
 
+    if label_mode not in {LABEL_MODE_SOURCE, LABEL_MODE_WM_FRACTION_AWARE}:
+        raise ValueError(
+            f"Unsupported label_mode: {label_mode!r}. "
+            f"Expected one of: {LABEL_MODE_SOURCE!r}, {LABEL_MODE_WM_FRACTION_AWARE!r}"
+        )
+    needs_red_for_label = label_mode == LABEL_MODE_WM_FRACTION_AWARE
+
     wm_path, dst_root = Path(wm_path), Path(dst_root)
 
     wm_train, wm_test = load_water_meter_dataset_split(wm_path, train_ratio, seed)
@@ -438,12 +641,17 @@ def prepare_ocr_crops(
         valid = [s for s in samples if s.roi_polygon is not None and s.value is not None]
 
         def _crop_bbox(img, s):
+            gt_bbox = polygon_to_bbox(s.roi_polygon)
             if roi_detector is not None:
-                bbox = roi_detector(img)
-                if bbox is None:
-                    return None          # detector missed — skip sample
+                det_bbox = roi_detector(img)
+                if det_bbox is None:
+                    if not fallback_to_gt_on_miss:
+                        return None      # detector missed — skip sample
+                    bbox = gt_bbox
+                else:
+                    bbox = det_bbox
             else:
-                bbox = polygon_to_bbox(s.roi_polygon)
+                bbox = gt_bbox
             return crop_roi_from_detection(img, bbox, out_h, out_w)
 
         for crop_type, crop_fn in [
@@ -454,23 +662,42 @@ def prepare_ocr_crops(
             img_dir.mkdir(parents=True, exist_ok=True)
             csv_path = dst_root / crop_type / split_name / "labels.csv"
 
-            existing = {r["filename"] for r in _read_csv(csv_path)}
-            new_rows: list[dict] = []
+            rows: list[dict] = []
 
             for s in valid:
                 fname = s.image_path.stem + ".png"
-                if fname in existing:
-                    continue
-                img = cv2.imread(str(s.image_path))
-                if img is None:
-                    continue
-                crop = crop_fn(img, s)
-                if crop is None:
-                    continue            # roi_detector missed this image
-                cv2.imwrite(str(img_dir / fname), crop)
-                new_rows.append({"filename": fname, "label": str(int(s.value))})
+                out_path = img_dir / fname
 
-            _append_csv(csv_path, new_rows)
+                # For fraction-aware labels we need image context (red presence);
+                # for crop generation we need image only when file is missing.
+                img = None
+                if needs_red_for_label or not out_path.exists():
+                    img = cv2.imread(str(s.image_path))
+                    if img is None:
+                        continue
+
+                has_fractional_red = None
+                if needs_red_for_label:
+                    has_fractional_red = _estimate_fractional_red_presence(img, s.roi_polygon)
+
+                label = sample_to_ocr_label(
+                    s,
+                    label_mode=label_mode,
+                    has_fractional_red=has_fractional_red,
+                )
+                if not label:
+                    continue
+
+                if not out_path.exists():
+                    crop = crop_fn(img, s)
+                    if crop is None:
+                        continue        # roi_detector missed this image
+                    cv2.imwrite(str(out_path), crop)
+
+                rows.append({"filename": fname, "label": label})
+
+            rows.sort(key=lambda r: r["filename"])
+            _write_csv(csv_path, rows)
 
 
 def _read_csv(path: Path) -> list[dict]:
@@ -480,12 +707,10 @@ def _read_csv(path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def _append_csv(path: Path, rows: list[dict]) -> None:
-    write_header = not path.exists()
-    with open(path, "a", newline="") as f:
+def _write_csv(path: Path, rows: list[dict]) -> None:
+    with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["filename", "label"])
-        if write_header:
-            w.writeheader()
+        w.writeheader()
         w.writerows(rows)
 
 

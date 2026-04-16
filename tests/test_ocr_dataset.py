@@ -2,6 +2,9 @@ import pytest
 import cv2
 import numpy as np
 from pathlib import Path
+import csv
+import re
+from types import SimpleNamespace
 from models.data.ocr_dataset import (
     warp_roi_polygon,
     crop_roi_bbox,
@@ -10,12 +13,26 @@ from models.data.ocr_dataset import (
     prepare_ocr_crops,
     load_ocr_crops,
     estimate_roi_rotation,
+    sample_to_ocr_label,
     CHARSET,
 )
 
 DATA_ROOT  = Path("WaterMetricsDATA")
 WM_PATH    = DATA_ROOT / "waterMeterDataset/WaterMeters"
 CROPS_ROOT = DATA_ROOT / "ocr_crops"
+
+
+_VALUE_IN_NAME_RE = re.compile(r"_value_(\d+)(?:_(\d+))?$")
+
+
+def _expected_label_from_filename(filename: str) -> str | None:
+    stem = Path(filename).stem
+    m = _VALUE_IN_NAME_RE.search(stem)
+    if not m:
+        return None
+    int_part = m.group(1)
+    frac_part = m.group(2) or ""
+    return int_part + frac_part
 
 
 class TestCropHelpers:
@@ -47,7 +64,6 @@ class TestPrepareOcrCrops:
 
     def test_labels_csv_has_header(self, tmp_path):
         prepare_ocr_crops(WM_PATH, tmp_path)
-        import csv
         with open(tmp_path / "wm_polygon" / "train" / "labels.csv") as f:
             header = next(csv.reader(f))
         assert header == ["filename", "label"]
@@ -57,6 +73,79 @@ class TestPrepareOcrCrops:
         samples = load_ocr_crops(tmp_path / "wm_polygon", "train")
         for _, label in samples[:10]:
             assert label.isdigit()
+
+    def test_wm_labels_keep_fractional_digits(self, tmp_path):
+        prepare_ocr_crops(WM_PATH, tmp_path)
+        samples = (
+            load_ocr_crops(tmp_path / "wm_polygon", "train")
+            + load_ocr_crops(tmp_path / "wm_polygon", "test")
+        )
+
+        matched = 0
+        for img_path, label in samples:
+            expected = _expected_label_from_filename(img_path.name)
+            if expected is None:
+                continue
+            matched += 1
+            assert label == expected
+
+        assert matched > 0
+
+    def test_rerun_rewrites_stale_labels(self, tmp_path):
+        prepare_ocr_crops(WM_PATH, tmp_path)
+
+        csv_path = tmp_path / "wm_polygon" / "train" / "labels.csv"
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+
+        assert rows
+        rows[0]["label"] = "1"
+
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["filename", "label"])
+            writer.writeheader()
+            writer.writerows(rows)
+
+        prepare_ocr_crops(WM_PATH, tmp_path)
+
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            fixed_rows = list(csv.DictReader(f))
+
+        expected = _expected_label_from_filename(fixed_rows[0]["filename"])
+        assert expected is not None
+        assert fixed_rows[0]["label"] == expected
+
+    def test_sample_to_ocr_label_ignores_separator_for_value_text(self):
+        s = SimpleNamespace(value_text="305.162", value=None)
+        assert sample_to_ocr_label(s) == "305162"
+
+        s = SimpleNamespace(value_text="00567.0", value=None)
+        assert sample_to_ocr_label(s) == "005670"
+
+        s = SimpleNamespace(value_text="12,340", value=None)
+        assert sample_to_ocr_label(s) == "12340"
+
+    def test_sample_to_ocr_label_rounds_legacy_float_fallback(self):
+        s = SimpleNamespace(value_text=None, value=90.21600000000001)
+        assert sample_to_ocr_label(s) == "90216"
+
+    def test_sample_to_ocr_label_fraction_aware_pads_hidden_zero_for_two_decimals(self):
+        s = SimpleNamespace(value_text="269.85", value=None)
+        assert sample_to_ocr_label(s, label_mode="wm_fraction_aware") == "269850"
+
+    def test_sample_to_ocr_label_fraction_aware_handles_single_decimal_ambiguity(self):
+        s_no_fraction = SimpleNamespace(value_text="40.0", value=None)
+        assert (
+            sample_to_ocr_label(
+                s_no_fraction,
+                label_mode="wm_fraction_aware",
+                has_fractional_red=False,
+            )
+            == "40"
+        )
+
+        s_fraction = SimpleNamespace(value_text="40.7", value=None)
+        assert sample_to_ocr_label(s_fraction, label_mode="wm_fraction_aware") == "40700"
 
     def test_idempotent(self, tmp_path):
         prepare_ocr_crops(WM_PATH, tmp_path)
