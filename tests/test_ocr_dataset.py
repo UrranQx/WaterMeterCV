@@ -177,12 +177,21 @@ class TestProjectionRotation:
         # Should detect ~20° (or -160° normalised to -20°, within some tolerance)
         assert abs(abs(angle) - 20) < 8.0
 
-    def test_crop_roi_from_detection_output_shape(self):
+    def test_crop_roi_from_detection_crop2_then_resize_fixed_shape(self):
         img = np.zeros((480, 640, 3), dtype=np.uint8)
         # Add a white horizontal band so projection profile has signal
         img[200:280, :] = 200
         out = crop_roi_from_detection(img, (0.5, 0.5, 0.6, 0.4), out_h=64, out_w=256)
         assert out.shape == (64, 256, 3)
+
+    def test_crop_roi_from_detection_resizes_if_too_short(self):
+        img = np.zeros((200, 300, 3), dtype=np.uint8)
+        img[80:120, :] = 200
+        out_h, out_w = 128, 1024
+        out = crop_roi_from_detection(
+            img, (0.5, 0.5, 0.4, 0.2), out_h=out_h, out_w=out_w,
+        )
+        assert out.shape == (out_h, out_w, 3)
 
     def test_crop_roi_from_detection_empty_bbox_returns_zeros(self):
         img = np.zeros((100, 100, 3), dtype=np.uint8)

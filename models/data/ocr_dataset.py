@@ -230,14 +230,18 @@ def crop_roi_from_detection(
     out_h: int = OUT_H,
     out_w: int = OUT_W,
 ) -> np.ndarray:
-    """Bbox-path crop: rotate the *original image* around bbox centre, then crop.
+    """Bbox-path crop: rotate original image, crop, optional vertical recrop.
 
     1. Cut a padded estimation crop to find the rotation angle.
     2. Coarse 90°: if crop is portrait, decide CW or CCW via projection score.
     3. Fine angle via projection-profile search on coarse-corrected crop.
     4. Rotate the **original image** around (cx, cy) by total angle —
        surrounding real pixels fill in, no border artifacts.
-    5. Adaptive padding (more for angles near 45°) → crop → resize.
+    5. Adaptive padding (more for angles near 45°) → first crop.
+    6. Optional second crop from ``rotated`` with same centre/same width and
+       ``H_c2 = W_c * out_h / out_w`` (vertical crop only).
+       If ``H_c2 < out_h``, skip this second crop.
+    7. Resize final crop to (out_w, out_h) for fixed output shape.
 
     Works identically during training and inference.
     """
@@ -309,7 +313,25 @@ def crop_roi_from_detection(
     if crop.size == 0:
         return np.zeros((out_h, out_w, 3), dtype=np.uint8)
 
-    return crop # cv2.resize(crop, (out_w, out_h))
+    crop_h_px, crop_w_px = crop.shape[:2]
+    target_h2 = int(round(crop_w_px * out_h / out_w))
+
+    # Vertical recrop around the first-crop centre, but sampled from rotated.
+    # Using rotated (not crop) lets us expand/shrink vertically with real pixels.
+    if target_h2 >= out_h:
+        center_x = (x1 + x2) / 2.0
+        center_y = (y1 + y2) / 2.0
+
+        x1_2 = max(0, int(round(center_x - crop_w_px / 2.0)))
+        x2_2 = min(w, int(round(center_x + crop_w_px / 2.0)))
+        y1_2 = max(0, int(round(center_y - target_h2 / 2.0)))
+        y2_2 = min(h, int(round(center_y + target_h2 / 2.0)))
+
+        crop2 = rotated[y1_2:y2_2, x1_2:x2_2]
+        if crop2.size != 0:
+            crop = crop2
+
+    return cv2.resize(crop, (out_w, out_h))
 
 
 # ─── Dataset preparation ──────────────────────────────────────────────────────
