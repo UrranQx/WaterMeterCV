@@ -5,15 +5,19 @@ Columns per row:
   [1] Estimation crop (padded, for angle detection)
   [2] After 90° coarse correction (if portrait)
   [3] Projection score curve -90..+90° (used range shown in green shading)
-  [4] Rotated original crop (real pixels, no artifacts)
-  [5] Final resize (bbox result)
-  [6] Polygon warp reference
+    [4] Rotated original crop1 (adaptive pad)
+    [5] Optional crop2 (vertical recrop from rotated)
+    [6] Final resize (bbox result)
+    [7] Polygon warp reference
 
 Usage — single range:
     uv run python scripts/debug_bbox_crop.py --min-angle 10 --max-angle 50
 
 Usage — batch (generates one image per range band):
     uv run python scripts/debug_bbox_crop.py --batch
+
+Usage — explicit samples:
+    uv run python scripts/debug_bbox_crop.py --ids id_1094_value_40_362 id_717_value_241_092
 """
 import sys
 import argparse
@@ -102,8 +106,15 @@ def _score_curve_full(crop, step=2.0):
     return angles, scores
 
 
-def _rotated_crop(img, bbox, total_angle, fine_angle):
-    """Rotate original image around bbox centre and crop with adaptive padding."""
+def _rotated_crop_stages(img, bbox, total_angle, fine_angle, out_h=OUT_H, out_w=OUT_W):
+    """Return stage crops: crop1, optional crop2, pre-resize final crop.
+
+    Mirrors crop_roi_from_detection internals:
+        crop1: adaptive padded crop from rotated image,
+        crop2: optional vertical recrop from rotated with
+               H_c2 = W_c * out_h / out_w (only when H_c2 >= out_h),
+        pre-resize final: crop2 if available, else crop1.
+    """
     h, w = img.shape[:2]
     cx, cy, bw, bh = bbox
     cx_px, cy_px = cx * w, cy * h
@@ -126,8 +137,32 @@ def _rotated_crop(img, bbox, total_angle, fine_angle):
     x2 = min(w, int(cx_px + crop_w / 2))
     y2 = min(h, int(cy_px + crop_h / 2))
 
-    c = rotated[y1:y2, x1:x2]
-    return c if c.size > 0 else np.zeros((OUT_H, OUT_W, 3), dtype=np.uint8)
+    crop1 = rotated[y1:y2, x1:x2]
+    if crop1.size == 0:
+        zero = np.zeros((OUT_H, OUT_W, 3), dtype=np.uint8)
+        return zero, None, zero, 0
+
+    crop_final = crop1
+    crop2 = None
+
+    crop_h_px, crop_w_px = crop1.shape[:2]
+    target_h2 = int(round(crop_w_px * out_h / out_w))
+
+    if target_h2 >= out_h:
+        center_x = (x1 + x2) / 2.0
+        center_y = (y1 + y2) / 2.0
+
+        x1_2 = max(0, int(round(center_x - crop_w_px / 2.0)))
+        x2_2 = min(w, int(round(center_x + crop_w_px / 2.0)))
+        y1_2 = max(0, int(round(center_y - target_h2 / 2.0)))
+        y2_2 = min(h, int(round(center_y + target_h2 / 2.0)))
+
+        c2 = rotated[y1_2:y2_2, x1_2:x2_2]
+        if c2.size != 0:
+            crop2 = c2
+            crop_final = crop2
+
+    return crop1, crop2, crop_final, target_h2
 
 
 def _draw_bbox(img, bbox, color, thick=3):
@@ -156,7 +191,7 @@ def render_batch(annotated, src_label, out_path, angle_min, angle_max):
         print(f"  No samples for [{angle_min}, {angle_max}] -- skipping.")
         return
 
-    N_COLS = 7
+    N_COLS = 8
     n = len(annotated)
     fig, axes = plt.subplots(n, N_COLS, figsize=(N_COLS * 3.8, n * 3.8))
     if n == 1:
@@ -167,9 +202,10 @@ def render_batch(annotated, src_label, out_path, angle_min, angle_max):
         "1. Estimation crop\n(pad=0.3)",
         "2. After coarse 90\n(if portrait)",
         "3. Score curve\n-90..+90 | used range shaded",
-        "4. Rotated original crop\n(real pixels, adaptive pad)",
-        "5. Final resize\n(bbox result)",
-        "6. Poly warp\n(reference)",
+        "4. Rotated crop1\n(real pixels, adaptive pad)",
+        "5. Crop2\n(vertical recrop from rotated)",
+        "6. Final resize\n(bbox result)",
+        "7. Poly warp\n(reference)",
     ]
     for c, t in enumerate(titles):
         axes[0, c].set_title(t, fontsize=8, fontweight="bold")
@@ -190,7 +226,7 @@ def render_batch(annotated, src_label, out_path, angle_min, angle_max):
                         for p in s.roi_polygon], dtype=np.int32)
         cv2.polylines(vis0, [pts], True, (0, 255, 0), 2)
         axes[row, 0].imshow(bgr2rgb(thumb(vis0)))
-        axes[row, 0].set_ylabel(f"GT={int(s.value)}\npoly_a={poly_a:+.1f}",
+        axes[row, 0].set_ylabel(f"{s.image_path.stem}\nGT={int(s.value)}\npoly_a={poly_a:+.1f}",
                                 fontsize=8, rotation=0, labelpad=100, va="center")
 
         # col 1: estimation crop
@@ -220,20 +256,32 @@ def render_batch(annotated, src_label, out_path, angle_min, angle_max):
         ax.tick_params(labelsize=6)
         ax.axis("on")
 
-        # col 4: rotated original crop (real pixels)
-        c4 = _rotated_crop(img, bbox, total_a, fine_a)
+        # col 4/5: rotated crop1 and optional crop2
+        c4, c5, _, h2 = _rotated_crop_stages(img, bbox, total_a, fine_a, out_h=OUT_H, out_w=OUT_W)
         axes[row, 4].imshow(bgr2rgb(thumb(c4)))
         axes[row, 4].set_xlabel(f"total={total_a:+.1f}", fontsize=7)
 
-        # col 5: final resize
+        if c5 is None:
+            axes[row, 5].imshow(np.zeros((OUT_H, OUT_W, 3), dtype=np.uint8))
+            axes[row, 5].text(
+                0.5, 0.5,
+                f"crop2 skipped\nHc2={h2} < out_h={OUT_H}",
+                ha="center", va="center", transform=axes[row, 5].transAxes,
+                fontsize=7, color="white",
+            )
+        else:
+            axes[row, 5].imshow(bgr2rgb(thumb(c5)))
+            axes[row, 5].set_xlabel(f"Hc2={h2}", fontsize=7)
+
+        # col 6: final resize
         final = crop_roi_from_detection(img, bbox, out_h=OUT_H, out_w=OUT_W)
-        axes[row, 5].imshow(bgr2rgb(final))
+        axes[row, 6].imshow(bgr2rgb(final))
 
-        # col 6: polygon warp reference
+        # col 7: polygon warp reference
         pw = warp_roi_polygon(img, s.roi_polygon, OUT_H, OUT_W)
-        axes[row, 6].imshow(bgr2rgb(pw))
+        axes[row, 7].imshow(bgr2rgb(pw))
 
-        for c in [0, 1, 2, 4, 5, 6]:
+        for c in [0, 1, 2, 4, 5, 6, 7]:
             axes[row, c].axis("off")
 
     plt.suptitle(
@@ -260,6 +308,12 @@ def main():
     parser.add_argument("--max-angle",  type=float, default=70.0)
     parser.add_argument("--batch",      action="store_true",
                         help="Generate one image per BATCH_RANGES band")
+    parser.add_argument(
+        "--ids",
+        nargs="+",
+        default=None,
+        help="Exact image stems to debug, e.g. id_1094_value_40_362",
+    )
     parser.add_argument("--out", type=str,
                         default=str(ROOT / "results" / "debug_bbox_crop.png"))
     parser.add_argument("--wm-path", type=str,
@@ -279,8 +333,9 @@ def main():
     _yolo = _make_yolo(yolo_w) if yolo_w.exists() else None
     src = "YOLO" if _yolo else "GT"
 
-    _, test = load_water_meter_dataset_split(wm_path, 0.7, 42)
-    valid = [s for s in test if s.roi_polygon is not None and s.value is not None]
+    train, test = load_water_meter_dataset_split(wm_path, 0.7, 42)
+    source_samples = (train + test) if args.ids else test
+    valid = [s for s in source_samples if s.roi_polygon is not None and s.value is not None]
 
     all_ann = []
     for s in valid:
@@ -289,6 +344,29 @@ def main():
         pa = estimate_roi_rotation(s.roi_polygon, img.shape)
         all_ann.append((abs(pa), pa, img, s))
     all_ann.sort(key=lambda t: t[0], reverse=True)
+
+    if args.ids:
+        by_stem = {s.image_path.stem: (a, pa, i, s) for a, pa, i, s in all_ann}
+        band = []
+        missing = []
+        for stem in args.ids:
+            rec = by_stem.get(stem)
+            if rec is None:
+                missing.append(stem)
+            else:
+                band.append(rec)
+
+        if missing:
+            print("Missing ids:", ", ".join(missing))
+        if not band:
+            print("No requested ids found in split.")
+            sys.exit(1)
+
+        abs_angles = [x[0] for x in band]
+        lo, hi = float(min(abs_angles)), float(max(abs_angles))
+        print(f"Explicit ids: found {len(band)} / {len(args.ids)}")
+        render_batch(band, src, Path(args.out), lo, hi)
+        return
 
     if args.batch:
         out_dir = Path(args.out).parent

@@ -102,9 +102,64 @@ def _projection_score(gray: np.ndarray) -> float:
     When the strip is horizontal those borders concentrate in a few rows →
     high std.  More robust than raw brightness on cluttered backgrounds.
     """
+    # Suppress side clutter (e.g. objects touching bbox corners) by scoring
+    # mostly on the central width where the digit strip usually sits.
+    h, w = gray.shape[:2]
+    margin = int(round(w * 0.15))
+    if w - 2 * margin >= 16:
+        gray = gray[:, margin:w - margin]
+
     sobel = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
     proj = np.abs(sobel).sum(axis=1)
     return float(proj.std())
+
+
+def _select_peak_by_sharpness(
+    angles: list[float],
+    scores: list[float],
+    score_ratio: float = 0.85,
+    sharp_ratio: float = 0.6,
+) -> float:
+    """Pick the highest peak among sufficiently sharp local maxima.
+
+    The method filters to local maxima, keeps peaks that are both high enough
+    in score and sharpness, then selects the highest one among those. This
+    avoids broad clutter-driven maxima while not over-favoring a lower but
+    extremely sharp secondary peak.
+    """
+    if not angles:
+        return 0.0
+    if len(angles) < 3:
+        return float(angles[int(np.argmax(scores))])
+
+    # Find local maxima and their sharpness.
+    peaks: list[tuple[int, float, float]] = []
+    for i in range(1, len(scores) - 1):
+        s = scores[i]
+        left = scores[i - 1]
+        right = scores[i + 1]
+        if s >= left and s >= right:
+            sharp = s - 0.5 * (left + right)
+            peaks.append((i, s, sharp))
+
+    if not peaks:
+        return float(angles[int(np.argmax(scores))])
+
+    max_score = max(p[1] for p in peaks)
+    max_sharp = max(p[2] for p in peaks)
+
+    candidates = [
+        p for p in peaks
+        if p[1] >= score_ratio * max_score and p[2] >= sharp_ratio * max_sharp
+    ]
+    if not candidates:
+        candidates = [p for p in peaks if p[1] >= score_ratio * max_score]
+    if not candidates:
+        candidates = peaks
+
+    # Prefer the highest surviving peak; use sharpness and |angle| as tiebreakers.
+    best = max(candidates, key=lambda p: (p[1], p[2], -abs(angles[p[0]])))
+    return float(angles[best[0]])
 
 
 def estimate_rotation_from_crop(
@@ -140,24 +195,34 @@ def estimate_rotation_from_crop(
         return _projection_score(rot)
 
     # Coarse pass
-    best_angle = 0.0
-    best_score = _score(0.0)
-    for a in np.arange(-angle_range, angle_range + coarse_step, coarse_step):
-        s = _score(float(a))
-        if s > best_score:
-            best_score = s
-            best_angle = float(a)
+    coarse_angles = [float(a) for a in np.arange(
+        -angle_range,
+        angle_range + coarse_step,
+        coarse_step,
+    )]
+    coarse_scores = [_score(a) for a in coarse_angles]
+    best_angle = _select_peak_by_sharpness(
+        coarse_angles,
+        coarse_scores,
+        score_ratio=0.85,
+        sharp_ratio=0.6,
+    )
 
     # Fine pass
-    for a in np.arange(
-        best_angle - coarse_step,
-        best_angle + coarse_step + fine_step,
+    fine_lo = max(-angle_range, best_angle - coarse_step)
+    fine_hi = min(angle_range, best_angle + coarse_step)
+    fine_angles = [float(a) for a in np.arange(
+        fine_lo,
+        fine_hi + fine_step,
         fine_step,
-    ):
-        s = _score(float(a))
-        if s > best_score:
-            best_score = s
-            best_angle = float(a)
+    )]
+    fine_scores = [_score(a) for a in fine_angles]
+    best_angle = _select_peak_by_sharpness(
+        fine_angles,
+        fine_scores,
+        score_ratio=0.85,
+        sharp_ratio=0.6,
+    )
 
     return best_angle
 
