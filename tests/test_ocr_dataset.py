@@ -147,6 +147,51 @@ class TestPrepareOcrCrops:
         s_fraction = SimpleNamespace(value_text="40.7", value=None)
         assert sample_to_ocr_label(s_fraction, label_mode="wm_fraction_aware") == "40700"
 
+    def test_sample_to_ocr_label_fraction_aware_dot_zero_defaults_to_integer(self):
+        s = SimpleNamespace(value_text="854.0", value=None)
+        assert (
+            sample_to_ocr_label(
+                s,
+                label_mode="wm_fraction_aware",
+                has_fractional_red=True,
+            )
+            == "854"
+        )
+
+    def test_sample_to_ocr_label_fraction_aware_dot_zero_auto_red_policy(self):
+        s = SimpleNamespace(value_text="854.0", value=None)
+
+        assert (
+            sample_to_ocr_label(
+                s,
+                label_mode="wm_fraction_aware",
+                dot_zero_policy="auto_red",
+                has_fractional_red=True,
+            )
+            == "854000"
+        )
+
+        assert (
+            sample_to_ocr_label(
+                s,
+                label_mode="wm_fraction_aware",
+                dot_zero_policy="auto_red",
+                has_fractional_red=False,
+            )
+            == "854"
+        )
+
+    def test_sample_to_ocr_label_fraction_aware_dot_zero_preserve_source_policy(self):
+        s = SimpleNamespace(value_text="854.0", value=None)
+        assert (
+            sample_to_ocr_label(
+                s,
+                label_mode="wm_fraction_aware",
+                dot_zero_policy="preserve_source",
+            )
+            == "8540"
+        )
+
     def test_idempotent(self, tmp_path):
         prepare_ocr_crops(WM_PATH, tmp_path)
         n1 = len(load_ocr_crops(tmp_path / "wm_polygon", "train"))
