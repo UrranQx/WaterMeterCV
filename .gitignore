@@ -12,3 +12,4 @@ runs/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+results/ocr_pretrained_failures/ultralytics_yolo11m_baseline/

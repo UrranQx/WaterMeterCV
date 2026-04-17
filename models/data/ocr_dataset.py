@@ -23,6 +23,17 @@ OUT_W   = 256
 LABEL_MODE_SOURCE = "source"
 LABEL_MODE_WM_FRACTION_AWARE = "wm_fraction_aware"
 
+DOT_ZERO_POLICY_AUTO_RED = "auto_red"
+DOT_ZERO_POLICY_DROP_FRACTION = "drop_fraction"
+DOT_ZERO_POLICY_EXPAND_HIDDEN = "expand_hidden"
+DOT_ZERO_POLICY_PRESERVE_SOURCE = "preserve_source"
+DOT_ZERO_POLICIES = {
+    DOT_ZERO_POLICY_AUTO_RED,
+    DOT_ZERO_POLICY_DROP_FRACTION,
+    DOT_ZERO_POLICY_EXPAND_HIDDEN,
+    DOT_ZERO_POLICY_PRESERVE_SOURCE,
+}
+
 
 def value_text_to_ocr_label(value_text: str) -> str:
     """Convert value text to OCR target label.
@@ -57,6 +68,7 @@ def _split_value_text_parts(value_text: str) -> tuple[str, str]:
 def normalize_wm_value_text_for_ocr(
     value_text: str,
     has_fractional_red: bool | None = None,
+    dot_zero_policy: str = DOT_ZERO_POLICY_DROP_FRACTION,
 ) -> str:
     """Normalize WM value text for OCR labels with fraction-aware rules.
 
@@ -64,11 +76,19 @@ def normalize_wm_value_text_for_ocr(
     - 3+ fractional digits: keep as-is.
     - 2 fractional digits: assume hidden 3rd drum is 0 and append one zero.
     - 1 non-zero fractional digit: treat as abbreviated fraction and append two zeros.
-    - 1 zero fractional digit (".0"):
-      * if has_fractional_red is False -> interpret as integer meter (drop fraction)
-      * if has_fractional_red is True  -> keep full hidden fraction as "000"
-      * if unknown -> preserve source ".0"
+    - 1 zero fractional digit (".0") follows dot_zero_policy:
+      * drop_fraction (default): interpret as integer meter (drop fraction)
+      * preserve_source: keep source ".0"
+      * expand_hidden: force hidden fraction as "000"
+      * auto_red: infer by has_fractional_red (False->drop, True->"000", None->"0")
     """
+    if dot_zero_policy not in DOT_ZERO_POLICIES:
+        expected = ", ".join(sorted(DOT_ZERO_POLICIES))
+        raise ValueError(
+            f"Unsupported dot_zero_policy: {dot_zero_policy!r}. "
+            f"Expected one of: {expected}"
+        )
+
     int_digits, frac_digits = _split_value_text_parts(value_text)
     if not int_digits and not frac_digits:
         return ""
@@ -80,6 +100,12 @@ def normalize_wm_value_text_for_ocr(
     elif len(frac_digits) == 1:
         if frac_digits != "0":
             frac_norm = frac_digits + "00"
+        elif dot_zero_policy == DOT_ZERO_POLICY_DROP_FRACTION:
+            frac_norm = ""
+        elif dot_zero_policy == DOT_ZERO_POLICY_PRESERVE_SOURCE:
+            frac_norm = frac_digits
+        elif dot_zero_policy == DOT_ZERO_POLICY_EXPAND_HIDDEN:
+            frac_norm = "000"
         elif has_fractional_red is False:
             frac_norm = ""
         elif has_fractional_red is True:
@@ -118,12 +144,15 @@ def sample_to_ocr_label(
     sample,
     label_mode: str = LABEL_MODE_SOURCE,
     has_fractional_red: bool | None = None,
+    dot_zero_policy: str = DOT_ZERO_POLICY_DROP_FRACTION,
 ) -> str:
     """Build stable OCR label from UnifiedSample value/value_text.
 
     label_mode:
       - "source": keep all source digits exactly as annotated.
       - "wm_fraction_aware": apply WM-specific decimal normalization rules.
+        dot_zero_policy:
+            Policy for handling ".0" in wm_fraction_aware mode.
     """
     if label_mode not in {LABEL_MODE_SOURCE, LABEL_MODE_WM_FRACTION_AWARE}:
         raise ValueError(
@@ -137,6 +166,7 @@ def sample_to_ocr_label(
             norm_text = normalize_wm_value_text_for_ocr(
                 raw_text,
                 has_fractional_red=has_fractional_red,
+                dot_zero_policy=dot_zero_policy,
             )
             return value_text_to_ocr_label(norm_text)
         return value_text_to_ocr_label(raw_text)
@@ -372,46 +402,70 @@ def estimate_rotation_from_crop(
     h, w = gray.shape
     center = (w / 2.0, h / 2.0)
 
-    def _score(angle: float) -> float:
+    def _rotated_gray(angle: float) -> np.ndarray:
         M = cv2.getRotationMatrix2D(center, angle, 1.0)
-        rot = cv2.warpAffine(
+        return cv2.warpAffine(
             gray, M, (w, h),
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_REPLICATE,
         )
-        return _projection_score(rot)
 
-    # Coarse pass
-    coarse_angles = [float(a) for a in np.arange(
-        -angle_range,
-        angle_range + coarse_step,
-        coarse_step,
-    )]
-    coarse_scores = [_score(a) for a in coarse_angles]
-    best_angle = _select_peak_by_sharpness(
-        coarse_angles,
-        coarse_scores,
-        score_ratio=0.85,
-        sharp_ratio=0.6,
-    )
+    def _score_full(angle: float) -> float:
+        return _projection_score(_rotated_gray(angle))
 
-    # Fine pass
-    fine_lo = max(-angle_range, best_angle - coarse_step)
-    fine_hi = min(angle_range, best_angle + coarse_step)
-    fine_angles = [float(a) for a in np.arange(
-        fine_lo,
-        fine_hi + fine_step,
-        fine_step,
-    )]
-    fine_scores = [_score(a) for a in fine_angles]
-    best_angle = _select_peak_by_sharpness(
-        fine_angles,
-        fine_scores,
-        score_ratio=0.85,
-        sharp_ratio=0.6,
-    )
+    def _score_center(angle: float) -> float:
+        rot = _rotated_gray(angle)
+        y1 = int(round(0.20 * h))
+        y2 = int(round(0.80 * h))
+        x1 = int(round(0.20 * w))
+        x2 = int(round(0.80 * w))
+        roi = rot[y1:y2, x1:x2]
+        if roi.size == 0:
+            return _projection_score(rot)
+        return _projection_score(roi)
 
-    return best_angle
+    def _search_best(score_fn) -> float:
+        coarse_angles = [float(a) for a in np.arange(
+            -angle_range,
+            angle_range + coarse_step,
+            coarse_step,
+        )]
+        coarse_scores = [score_fn(a) for a in coarse_angles]
+        coarse_best = _select_peak_by_sharpness(
+            coarse_angles,
+            coarse_scores,
+            score_ratio=0.85,
+            sharp_ratio=0.6,
+        )
+
+        fine_lo = max(-angle_range, coarse_best - coarse_step)
+        fine_hi = min(angle_range, coarse_best + coarse_step)
+        fine_angles = [float(a) for a in np.arange(
+            fine_lo,
+            fine_hi + fine_step,
+            fine_step,
+        )]
+        fine_scores = [score_fn(a) for a in fine_angles]
+        return _select_peak_by_sharpness(
+            fine_angles,
+            fine_scores,
+            score_ratio=0.85,
+            sharp_ratio=0.6,
+        )
+
+    best_full = _search_best(_score_full)
+    best_center = _search_best(_score_center)
+
+    # Rare fallback: if full-field and center-field scorers pick opposite
+    # strong tilts, prefer center-field (digit strip is usually central).
+    if (
+        np.sign(best_full) != np.sign(best_center)
+        and abs(best_full) >= 15.0
+        and abs(best_center) >= 15.0
+    ):
+        return float(best_center)
+
+    return float(best_full)
 
 
 # ─── Crop helpers ─────────────────────────────────────────────────────────────
@@ -598,6 +652,7 @@ def prepare_ocr_crops(
     roi_detector: Callable[[np.ndarray], tuple[float, float, float, float] | None] | None = None,
     fallback_to_gt_on_miss: bool = False,
     label_mode: str = LABEL_MODE_SOURCE,
+    dot_zero_policy: str = DOT_ZERO_POLICY_DROP_FRACTION,
 ) -> None:
     """Create two WM OCR crop datasets under dst_root (idempotent).
 
@@ -615,6 +670,11 @@ def prepare_ocr_crops(
             - source: keep all source digits as annotated.
             - wm_fraction_aware: WM-specific decimal normalization that can infer
                 hidden trailing zeros and handle '.0' using red-fraction presence.
+        dot_zero_policy:
+            - drop_fraction (default): map '.0' -> integer-only label.
+            - preserve_source: keep '.0' as one trailing zero.
+            - expand_hidden: map '.0' -> three trailing zeros.
+            - auto_red: infer '.0' using red-fraction presence heuristic.
 
     UM is excluded — ROI detection on UM is unreliable (only 45/1552 have ROI).
 
@@ -631,7 +691,17 @@ def prepare_ocr_crops(
             f"Unsupported label_mode: {label_mode!r}. "
             f"Expected one of: {LABEL_MODE_SOURCE!r}, {LABEL_MODE_WM_FRACTION_AWARE!r}"
         )
-    needs_red_for_label = label_mode == LABEL_MODE_WM_FRACTION_AWARE
+    if dot_zero_policy not in DOT_ZERO_POLICIES:
+        expected = ", ".join(sorted(DOT_ZERO_POLICIES))
+        raise ValueError(
+            f"Unsupported dot_zero_policy: {dot_zero_policy!r}. "
+            f"Expected one of: {expected}"
+        )
+
+    needs_red_for_label = (
+        label_mode == LABEL_MODE_WM_FRACTION_AWARE
+        and dot_zero_policy == DOT_ZERO_POLICY_AUTO_RED
+    )
 
     wm_path, dst_root = Path(wm_path), Path(dst_root)
 
@@ -684,6 +754,7 @@ def prepare_ocr_crops(
                     s,
                     label_mode=label_mode,
                     has_fractional_red=has_fractional_red,
+                    dot_zero_policy=dot_zero_policy,
                 )
                 if not label:
                     continue

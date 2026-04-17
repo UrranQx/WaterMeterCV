@@ -3,6 +3,8 @@ from pathlib import Path
 import csv
 import ast
 import random
+import re
+from decimal import Decimal, InvalidOperation
 
 
 @dataclass
@@ -10,11 +12,47 @@ class UnifiedSample:
     """Unified representation of a single dataset sample."""
     image_path: Path
     value: float | None = None
+    value_text: str | None = None
     roi_polygon: list[tuple[float, float]] | None = None  # [(x, y), ...] normalized
     roi_bbox: tuple[float, float, float, float] | None = None  # (cx, cy, w, h) normalized
     digit_bboxes: list[tuple[int, float, float, float, float]] | None = None  # [(class_id, cx, cy, w, h), ...]
     mask_path: Path | None = None
     dataset_source: str = ""
+
+
+_PHOTO_VALUE_RE = re.compile(r"_value_(\d+(?:_\d+)?)$")
+
+
+def _extract_value_text_from_photo_name(photo_name: str) -> str | None:
+    """Extract canonical value text from WM filename (e.g. ..._value_595_825.jpg)."""
+    stem = Path(photo_name).stem
+    match = _PHOTO_VALUE_RE.search(stem)
+    if not match:
+        return None
+    return _normalize_value_text(match.group(1).replace("_", "."))
+
+
+def _normalize_value_text(raw_value: str) -> str | None:
+    """Normalize numeric text while preserving all source digits.
+
+    Main OCR labels are compared as digits-only strings, so we keep fractional
+    digits exactly as provided by source annotations and only normalize
+    separators / scientific notation formatting.
+    """
+    if raw_value is None:
+        return None
+    text = str(raw_value).strip().replace(",", ".")
+    if not text:
+        return None
+
+    if re.fullmatch(r"[+-]?\d+(?:\.\d+)?", text):
+        return text
+
+    try:
+        dec = Decimal(text)
+    except InvalidOperation:
+        return None
+    return format(dec, "f")
 
 
 def load_water_meter_dataset(root: Path) -> list[UnifiedSample]:
@@ -32,7 +70,16 @@ def load_water_meter_dataset(root: Path) -> list[UnifiedSample]:
         reader = csv.DictReader(f)
         for row in reader:
             photo_name = row["photo_name"]
-            value = round(float(row["value"]), 3)
+            value_text = _extract_value_text_from_photo_name(photo_name)
+            if value_text is None:
+                value_text = _normalize_value_text(row.get("value", ""))
+
+            value = None
+            if value_text is not None:
+                try:
+                    value = float(value_text)
+                except ValueError:
+                    value = None
 
             location = ast.literal_eval(row["location"])
             polygon = [(pt["x"], pt["y"]) for pt in location["data"]]
@@ -45,6 +92,7 @@ def load_water_meter_dataset(root: Path) -> list[UnifiedSample]:
             samples.append(UnifiedSample(
                 image_path=image_path,
                 value=value,
+                value_text=value_text,
                 roi_polygon=polygon,
                 mask_path=mask_path,
                 dataset_source="water_meter_dataset",
@@ -105,9 +153,11 @@ def load_utility_meter_dataset(root: Path, split: str = "train") -> list[Unified
                         digit_bboxes.append((cls_id, cx, cy, w, h))
 
         value = None
+        value_text = None
         if digit_bboxes:
             sorted_digits = sorted(digit_bboxes, key=lambda d: d[1])
             value_str = "".join(str(d[0]) for d in sorted_digits)
+            value_text = value_str
             try:
                 value = float(value_str)
             except ValueError:
@@ -116,6 +166,7 @@ def load_utility_meter_dataset(root: Path, split: str = "train") -> list[Unified
         samples.append(UnifiedSample(
             image_path=img_path,
             value=value,
+            value_text=value_text,
             roi_bbox=roi_bbox,
             digit_bboxes=digit_bboxes if digit_bboxes else None,
             dataset_source="utility_meter",
