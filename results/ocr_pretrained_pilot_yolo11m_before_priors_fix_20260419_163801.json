@@ -1,0 +1,28 @@
+{
+  "run_date": "2026-04-19T16:17:02.816868",
+  "candidate": "ultralytics_yolo11m_baseline",
+  "preprocess_mode": "none",
+  "stage_a_pass": true,
+  "max_reading_digits": 10,
+  "wlev_weight_base": 2.0,
+  "wm_polygon": {
+    "fsa_raw": 0.008021390374331552,
+    "fsa_norm": 0.6978609625668449,
+    "pda": 0.0753310415075121,
+    "cer": 0.5237967914438503,
+    "wlev_norm_mean": 0.1037390314997929,
+    "avg_ms": 28.282792246062595,
+    "non_empty_rate": 1.0,
+    "selected_180_share": 0.14705882352941177
+  },
+  "wm_bbox": {
+    "fsa_raw": 0.0,
+    "fsa_norm": 0.8475935828877005,
+    "pda": 0.06277692895339954,
+    "cer": 0.48280494015788133,
+    "wlev_norm_mean": 0.05003518353947469,
+    "avg_ms": 26.427751604241685,
+    "non_empty_rate": 0.9973262032085561,
+    "selected_180_share": 0.0962566844919786
+  }
+}
