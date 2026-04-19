@@ -15,6 +15,9 @@ uv sync
 # Run tests
 uv run pytest tests/ -v
 
+# Fast OCR tests only (skip slow prepare_ocr_crops; useful for iteration)
+uv run pytest tests/test_ocr_dataset.py -k "not Prepare and not LoadOcr" -v
+
 # Run a single test
 uv run pytest tests/path/test_file.py::test_name -v
 
@@ -86,6 +89,20 @@ GitFlow-lite: `main` ← `develop` ← `feature/<name>`
 Conventional commits: `feat:`, `fix:`, `refactor:`, `docs:`
 Feature branches: `feature/data-exploration`, `feature/baseline-yolo`, `feature/roi-*`, `feature/ocr-*`, `feature/combo-*`
 Tags: `v0.1-baseline`, `v0.2-roi`, `v0.3-research-complete`
+
+## OCR Crops (feature/ocr-notebooks — in progress)
+
+Two crop paths in `models/data/ocr_dataset.py`:
+- `wm_polygon` — perspective warp on GT roi_polygon (`warp_roi_polygon`)
+- `wm_bbox` — rotation-corrected bbox crop (`crop_roi_from_detection`)
+
+**bbox rotation approach:** rotate the *original image* around bbox centre (`getRotationMatrix2D`), then crop with adaptive padding.
+Never rotate the crop — the original fills borders with real pixels, no artifacts.
+- cv2 convention: positive angle = CCW. `ROTATE_90_CLOCKWISE` ≡ angle=−90° in `getRotationMatrix2D`.
+- `total_angle = coarse_angle + fine_angle`; coarse ∈ {0, −90, +90} (portrait→landscape via projection score).
+- Adaptive padding: `pad = 0.1 + 0.4 * |sin(2 * fine_angle_rad)|` — more headroom near 45°.
+
+Visual debug: `uv run python scripts/debug_bbox_crop.py --batch` → 5 PNGs by angle band in `results/`.
 
 ## Plan & Spec
 
