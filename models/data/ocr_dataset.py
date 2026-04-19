@@ -649,6 +649,8 @@ def prepare_ocr_crops(
     seed: int = 42,
     out_h: int = OUT_H,
     out_w: int = OUT_W,
+    roi_polygon_detector: Callable[[np.ndarray], list[tuple[float, float]] | None] | None = None,
+    fallback_to_gt_polygon_on_miss: bool = False,
     roi_detector: Callable[[np.ndarray], tuple[float, float, float, float] | None] | None = None,
     fallback_to_gt_on_miss: bool = False,
     label_mode: str = LABEL_MODE_SOURCE,
@@ -656,7 +658,13 @@ def prepare_ocr_crops(
 ) -> None:
     """Create two WM OCR crop datasets under dst_root (idempotent).
 
-    wm_polygon/  — WM perspective warp on roi_polygon (GT annotation).
+    wm_polygon/  — WM perspective warp on ROI polygon.
+                   If *roi_polygon_detector* is provided (callable: img_bgr →
+                   polygon|None), it is used to get the polygon (e.g. ROI U-Net
+                   mask-to-polygon inference). Otherwise falls back to GT
+                   roi_polygon annotation. If detector misses and
+                   *fallback_to_gt_polygon_on_miss* is True, GT roi_polygon is
+                   used instead of skipping.
     wm_bbox/     — WM bbox crop with content-based rotation correction.
                    If *roi_detector* is provided (callable: img_bgr → (cx,cy,w,h)|None),
                    it is used to get the bbox (e.g. YOLO / Faster R-CNN inference).
@@ -680,8 +688,8 @@ def prepare_ocr_crops(
 
     Each split: images/<stem>.png  +  labels.csv (filename, label)
     Skips images already present (safe to re-run).
-    Note: delete existing wm_bbox crops before re-running with a different
-    roi_detector to force regeneration (idempotency is by filename).
+    Note: delete existing wm_polygon/wm_bbox crops before re-running with a
+    different detector source to force regeneration (idempotency is by filename).
     """
     from models.data.unified_loader import load_water_meter_dataset_split
     from models.data.roi_dataset import polygon_to_bbox
@@ -708,24 +716,49 @@ def prepare_ocr_crops(
     wm_train, wm_test = load_water_meter_dataset_split(wm_path, train_ratio, seed)
 
     for split_name, samples in [("train", wm_train), ("test", wm_test)]:
-        valid = [s for s in samples if s.roi_polygon is not None and s.value is not None]
+        valid = [
+            s
+            for s in samples
+            if s.value is not None and (s.roi_polygon is not None or roi_polygon_detector is not None)
+        ]
+
+        def _resolve_polygon(img, s):
+            if roi_polygon_detector is None:
+                return s.roi_polygon
+
+            pred_polygon = roi_polygon_detector(img)
+            if pred_polygon is not None and len(pred_polygon) >= 3:
+                return pred_polygon
+
+            if fallback_to_gt_polygon_on_miss:
+                return s.roi_polygon
+
+            return None
+
+        def _crop_polygon(img, s):
+            polygon = _resolve_polygon(img, s)
+            if polygon is None:
+                return None
+            return warp_roi_polygon(img, polygon, out_h, out_w)
 
         def _crop_bbox(img, s):
-            gt_bbox = polygon_to_bbox(s.roi_polygon)
+            gt_bbox = polygon_to_bbox(s.roi_polygon) if s.roi_polygon is not None else None
             if roi_detector is not None:
                 det_bbox = roi_detector(img)
                 if det_bbox is None:
-                    if not fallback_to_gt_on_miss:
+                    if not fallback_to_gt_on_miss or gt_bbox is None:
                         return None      # detector missed — skip sample
                     bbox = gt_bbox
                 else:
                     bbox = det_bbox
             else:
+                if gt_bbox is None:
+                    return None
                 bbox = gt_bbox
             return crop_roi_from_detection(img, bbox, out_h, out_w)
 
         for crop_type, crop_fn in [
-            ("wm_polygon", lambda img, s: warp_roi_polygon(img, s.roi_polygon, out_h, out_w)),
+            ("wm_polygon", _crop_polygon),
             ("wm_bbox",    _crop_bbox),
         ]:
             img_dir = dst_root / crop_type / split_name / "images"
