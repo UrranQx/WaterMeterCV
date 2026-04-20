@@ -1,34 +1,89 @@
-# WaterMeterCV
+<div align="center">
 
-CV-пайплайн для извлечения цифр с фотографии водосчётчика.
+# 💧 WaterMeterCV
 
-Вход — JPEG/PNG с меткой счётчика; выход — строка цифр и confidence.
+**CV-пайплайн для извлечения цифр с фотографии водосчётчика**
 
-## Статус
+*Вход — JPEG/PNG с меткой счётчика &nbsp;·&nbsp; Выход — строка цифр и confidence*
 
-Research-фаза завершена. Зафиксированный пайплайн:
+[![Python 3.13](https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--v3-blue)](LICENSE)
+[![Docker](https://img.shields.io/badge/docker-cpu%20%7C%20gpu-2496ED?logo=docker&logoColor=white)](docker/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 
+
+</div>
+
+---
+
+## Оглавление
+
+- [💧 WaterMeterCV](#-watermetercv)
+  - [Оглавление](#оглавление)
+  - [Статус и метрики](#статус-и-метрики)
+  - [Пайплайн](#пайплайн)
+  - [Быстрый старт](#быстрый-старт)
+    - [1. Локально (uv)](#1-локально-uv)
+    - [2. Docker — CPU](#2-docker--cpu)
+    - [3. Docker — GPU](#3-docker--gpu)
+  - [API](#api)
+    - [`POST /predict`](#post-predict)
+    - [`GET /healthz` · `GET /info`](#get-healthz--get-info)
+  - [Конфигурация](#конфигурация)
+  - [Разработка и research](#разработка-и-research)
+  - [Лицензия](#лицензия)
+
+---
+
+## Статус и метрики
+
+Research-фаза завершена — выигравший пайплайн зафиксирован и упакован в FastAPI-сервис.
+
+| Метрика | Значение | Модель |
+|---|---|---|
+| ROI IoU (WaterMeterDataset, test) | **0.94** | YOLO11n |
+| ROI detection rate | **100 %** | YOLO11n |
+| OCR FSA norm (test split) | **87.7 %** | YOLO11m |
+| Inference time (CPU, warm) | **~36 ms / фото** | YOLO11m |
+| Service bench vs research pipeline | **374 / 374** | — |
+
+---
+
+## Пайплайн
+
+```mermaid
+flowchart TD
+    A([Image]) --> B["YOLO11n — ROI Detection"]
+    B --> C["crop_roi_from_detection"]
+    C --> D["YOLO11m OCR · 0°"]
+    C --> E["YOLO11m OCR · 180°"]
+    D --> F["select_dual_orientation_with_priors\n──────────────────────────────\nleading-zero · long-tail-zero\nred-bbox cluster · ultra-overlap\nlast-drum · no-red short-tail"]
+    E --> F
+    F --> G(["digits + confidence"])
 ```
-image ─► YOLO11n (ROI) ─► crop ─► YOLO11m (OCR, 0°+180°) ─► priors voting ─► digits
-```
+![Image showing the ROI - bbox pipeline](media/images/BBox-debug-pipeline.png)
+![Image showing the OCR pipeline](media/images/OCR-pipeline.png)
+> [!NOTE]
+> Канонические эвристики и параметры прайоров —
+> [`Notebooks/03_ocr/00_pretrained_ocr_yolo11m.ipynb`](Notebooks/03_ocr/00_pretrained_ocr_yolo11m.ipynb).
+> Детали ROI-исследования — [`docs/notes/roi-detection-findings.md`](docs/notes/roi-detection-findings.md).
 
-- ROI-детектор: `wm_yolo_roi_20260412_230832` (YOLO11n, WM IoU ≈ 0.94).
-- OCR-детектор: `yolo11m_20260414_194809` (YOLO11m, single-stage digit detection, ~39 MB).
-- Dual-orientation read (0°/180°) с голосованием priors: leading-zero, long-tail zero, red-bbox cluster, no-red short tail, ultra-overlap, last-drum. Канонический вариант — `Notebooks/03_ocr/00_pretrained_ocr_yolo11m.ipynb`.
-- Подробности ROI-исследования: `docs/notes/roi-detection-findings.md`.
+---
 
-## Запуск сервиса
+## Быстрый старт
 
-Три сценария. Во всех — HTTP-сервер на `:8000`, endpoint `POST /predict`.
+Три сценария — во всех поднимается HTTP-сервер на `:8000`, endpoint `POST /predict`.
 
 ### 1. Локально (uv)
 
 ```bash
-uv sync --extra service           # CPU
-# или
-uv sync --extra service --extra cuda   # GPU (CUDA 13.0)
-
+# CPU
+uv sync --extra service
 uv run watermetercv-serve
+
+# GPU (CUDA 13.0)
+uv sync --extra service --extra cuda
+WATERMETERCV_DEVICE=cuda:0 uv run watermetercv-serve
 ```
 
 ### 2. Docker — CPU
@@ -40,44 +95,64 @@ docker run --rm -p 8000:8000 watermetercv:cpu
 
 ### 3. Docker — GPU
 
-Требуется `nvidia-container-toolkit` на хосте.
+> [!TIP]
+> На хосте нужен [`nvidia-container-toolkit`](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
 
 ```bash
 docker build -f docker/Dockerfile.gpu -t watermetercv:gpu .
 docker run --rm --gpus all -p 8000:8000 watermetercv:gpu
 ```
 
-Удобная альтернатива через `docker compose`:
+<details>
+<summary><b>Через docker compose</b></summary>
 
 ```bash
 docker compose -f docker/docker-compose.yml --profile cpu up --build
 docker compose -f docker/docker-compose.yml --profile gpu up --build
 ```
 
-## Пример запроса
+</details>
+
+---
+
+## API
+
+### `POST /predict`
 
 ```bash
 curl -F "image=@meter.jpg" http://localhost:8000/predict
 ```
 
-Ответ:
-
 ```json
 {"digits": "00123456", "confidence": 0.87}
 ```
 
-Служебные эндпойнты:
+### `GET /healthz` · `GET /info`
 
 ```bash
-curl http://localhost:8000/healthz   # {"status":"ok"}
-curl http://localhost:8000/info      # {"roi_model":"...","ocr_model":"...","device":"..."}
+curl http://localhost:8000/healthz
+# {"status":"ok"}
+
+curl http://localhost:8000/info
+# {"roi_model":"wm_yolo_roi_20260412_230832","ocr_model":"yolo11m_20260414_194809","device":"cpu"}
 ```
 
-Полный контракт, коды ошибок, рекомендации по интеграции — `docs/service.md`.
+| Код | Причина |
+|---|---|
+| `200` | OK — digits + confidence |
+| `400` | Битое или пустое изображение |
+| `413` | Файл больше 10 MB |
+| `422` | Нет поля `image` в форме |
+| `500` | Внутренняя ошибка |
+| `503` | Pipeline ещё не готов |
+
+Полный контракт и рекомендации по интеграции — [`docs/service.md`](docs/service.md).
+
+---
 
 ## Конфигурация
 
-Переменные окружения (все опциональные, в Docker-образах выставлены по умолчанию):
+Переменные окружения (все опциональные; в Docker-образах выставлены по умолчанию):
 
 | Переменная | Назначение | Default |
 |---|---|---|
@@ -87,31 +162,51 @@ curl http://localhost:8000/info      # {"roi_model":"...","ocr_model":"...","dev
 | `WATERMETERCV_HOST` | bind host | `0.0.0.0` |
 | `WATERMETERCV_PORT` | bind port | `8000` |
 
+---
+
 ## Разработка и research
 
-- `Notebooks/` — эксперименты (00 EDA → 01 baseline → 02 ROI → 03 OCR → 04 combinations).
-- `models/data/`, `models/utils/`, `models/metrics/` — unified dataset, orientation/crop helpers, общие метрики.
-- `src/watermetercv/` — inference-only пакет сервиса (ROI + OCR + priors + FastAPI).
-- `configs/default.yaml` — гиперпараметры training-пайплайнов.
-- `tests/` — unit + integration (TestClient).
-
-Запуск тестов:
-
-```bash
-uv run pytest tests/ -v
+```
+WaterMeterCV/
+├── Notebooks/          # 00 EDA → 01 baseline → 02 ROI → 03 OCR → 04 combinations
+├── models/
+│   ├── data/           # unified dataset loaders, crop/warp helpers
+│   ├── metrics/        # FSA, CER, IoU, inference time
+│   └── utils/          # visualization, orientation (dual_read_inference)
+├── src/watermetercv/   # inference-only пакет сервиса
+│   ├── ocr/            # heuristics, predictor, priors
+│   ├── roi/            # yolo_roi detector wrapper
+│   └── service/        # FastAPI app + schemas
+├── docker/             # Dockerfile.cpu · Dockerfile.gpu · docker-compose.yml
+├── scripts/            # bench_service, debug_bbox_crop, visualization
+├── configs/            # default.yaml — гиперпараметры
+├── results/            # метрики JSON/CSV
+└── tests/              # unit + integration (TestClient)
 ```
 
-Остальные проектные соглашения (git-workflow, работа в Colab, структура датасетов) — см. `CLAUDE.md`.
+```bash
+# Запуск тестов
+uv run pytest tests/ -v
+
+# Service regression bench
+uv run watermetercv-serve &
+python scripts/bench_service.py --url http://localhost:8000 --tag cpu
+```
+
+Остальные соглашения (git-workflow, Colab, структура датасетов) — [`CLAUDE.md`](CLAUDE.md).
+
+---
 
 ## Лицензия
 
-Код и веса моделей, распространяемые в этом репозитории, лицензированы под
-**AGPL-3.0** (см. `LICENSE`).
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
-![[4x.avif]]
+Код и веса моделей — **[AGPL-3.0](LICENSE)**.
 
-Учебный проект. Один из датасетов, использованных для обучения
-(ROI-детектор), распространяется под **CC BY-NC-ND 4.0** — коммерческое
-использование сервиса и запечённых в Docker-образы весов запрещено без
-отдельного лицензионного гранта. Подробности и полный список атрибуций —
-`NOTICE.md`.
+> [!WARNING]
+> <img src="media/gifs/4x.avif" alt="WaterMeterCV pipeline demo" width="128">
+> 
+> Учебный проект. ROI-детектор обучен на датасете под **CC BY-NC-ND 4.0**
+> (Kucev Roman / tapakah68, Kaggle) — **коммерческое использование запрещено**
+> без отдельного лицензионного гранта или замены ROI-весов.
+> Полный список атрибуций — [`NOTICE.md`](NOTICE.md).
