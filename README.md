@@ -1,29 +1,104 @@
-Это проект по созданию CV модели, которая будет извлекать полезные данные из фотографии счетчика
+# WaterMeterCV
 
-Пока что этот файл будет обновлен только после получения хорошего ML пайплайна
+CV-пайплайн для извлечения цифр с фотографии водосчётчика.
 
-Сейчас все нужные данные пока что хранятся в \docs\notes
+Вход — JPEG/PNG с меткой счётчика; выход — строка цифр и confidence.
 
-___
-Как мы сейчас работаем ->
-Сначала надо определиться, все таки какой датасет нам больше всего подходит. Картинки там все хорошие и качественные, выбор зависит от аннотаций, наличия и масок (надо ли нам это) и формата в котором эти аннотации сами написаны (coco/json/csv/надо вычленять из названия файла) Либо, если можем собрать какой-то один целиковый из них датасет, только надо учитывать, что скорее всего эти датасеты могут частично или даже полностью пересекаться, так что придется исключать повторы.
+## Статус
 
-Далее нам надо проанализировать итоговый датасет для работы. Собрать какую-то полезную для нашей задачи статистику, которая поможет правильнее передать задачу в ML
+Research-фаза завершена. Зафиксированный пайплайн:
 
-Далее мы должны протестировать несколько ML Pipelines созданных на основе идей описанных в ML Pipeline Variations.md
+```
+image ─► YOLO11n (ROI) ─► crop ─► YOLO11m (OCR, 0°+180°) ─► priors voting ─► digits
+```
 
-То есть, какой-то базовой версией, которую мы будем использовать для сетапа будет Вариант - 1. Одностадийная детекция цифр - YOLO.
-А вот уже мы потом будем продумывать более правильные архитектуры согласно варианту 2. 2+ Стадии 
-А Также уже существующие комбинации.
+- ROI-детектор: `wm_yolo_roi_20260412_230832` (YOLO11n, WM IoU ≈ 0.94).
+- OCR-детектор: `yolo11m_20260414_194809` (YOLO11m, single-stage digit detection, ~39 MB).
+- Dual-orientation read (0°/180°) с голосованием priors: leading-zero, long-tail zero, red-bbox cluster, no-red short tail, ultra-overlap, last-drum. Канонический вариант — `Notebooks/03_ocr/00_pretrained_ocr_yolo11m.ipynb`.
+- Подробности ROI-исследования: `docs/notes/roi-detection-findings.md`.
 
-Затем будем собирать Dataflow целиком.
-А также прикручивать FAST API 
-И паковать в docker и потом будем думать над ускорением инференса.
+## Запуск сервиса
 
+Три сценария. Во всех — HTTP-сервер на `:8000`, endpoint `POST /predict`.
 
-___
- 
-Также нам надо видеть примерную итоговую файловую структуру проекта
-    Например, точно наверное должна быть папка с разными моделями
-    папка с нотбуками, где мы будем проводить исследовательскую работу на тестирование ML ки. И чтобы можно было эти нотбуки загрузить в colab через гитхаб и затестить уже там.
-    REST API и для DATA FLOW 
+### 1. Локально (uv)
+
+```bash
+uv sync --extra service           # CPU
+# или
+uv sync --extra service --extra cuda   # GPU (CUDA 13.0)
+
+uv run watermetercv-serve
+```
+
+### 2. Docker — CPU
+
+```bash
+docker build -f docker/Dockerfile.cpu -t watermetercv:cpu .
+docker run --rm -p 8000:8000 watermetercv:cpu
+```
+
+### 3. Docker — GPU
+
+Требуется `nvidia-container-toolkit` на хосте.
+
+```bash
+docker build -f docker/Dockerfile.gpu -t watermetercv:gpu .
+docker run --rm --gpus all -p 8000:8000 watermetercv:gpu
+```
+
+Удобная альтернатива через `docker compose`:
+
+```bash
+docker compose -f docker/docker-compose.yml --profile cpu up --build
+docker compose -f docker/docker-compose.yml --profile gpu up --build
+```
+
+## Пример запроса
+
+```bash
+curl -F "image=@meter.jpg" http://localhost:8000/predict
+```
+
+Ответ:
+
+```json
+{"digits": "00123456", "confidence": 0.87}
+```
+
+Служебные эндпойнты:
+
+```bash
+curl http://localhost:8000/healthz   # {"status":"ok"}
+curl http://localhost:8000/info      # {"roi_model":"...","ocr_model":"...","device":"..."}
+```
+
+Полный контракт, коды ошибок, рекомендации по интеграции — `docs/service.md`.
+
+## Конфигурация
+
+Переменные окружения (все опциональные, в Docker-образах выставлены по умолчанию):
+
+| Переменная | Назначение | Default |
+|---|---|---|
+| `WATERMETERCV_ROI_WEIGHTS` | путь к `.pt` весам ROI-модели | `models/weights/roi_yolo/.../best.pt` |
+| `WATERMETERCV_OCR_WEIGHTS` | путь к `.pt` весам OCR-модели | `models/weights/baseline_yolo/yolo11m_.../best.pt` |
+| `WATERMETERCV_DEVICE` | `cpu` / `cuda:0` | `cpu` (в GPU-образе `cuda:0`) |
+| `WATERMETERCV_HOST` | bind host | `0.0.0.0` |
+| `WATERMETERCV_PORT` | bind port | `8000` |
+
+## Разработка и research
+
+- `Notebooks/` — эксперименты (00 EDA → 01 baseline → 02 ROI → 03 OCR → 04 combinations).
+- `models/data/`, `models/utils/`, `models/metrics/` — unified dataset, orientation/crop helpers, общие метрики.
+- `src/watermetercv/` — inference-only пакет сервиса (ROI + OCR + priors + FastAPI).
+- `configs/default.yaml` — гиперпараметры training-пайплайнов.
+- `tests/` — unit + integration (TestClient).
+
+Запуск тестов:
+
+```bash
+uv run pytest tests/ -v
+```
+
+Остальные проектные соглашения (git-workflow, работа в Colab, структура датасетов) — см. `CLAUDE.md`.

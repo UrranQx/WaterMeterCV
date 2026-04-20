@@ -1,0 +1,30 @@
+# Large / irrelevant paths — keep the build context small.
+.git
+.github
+.venv
+.ruff_cache
+.pytest_cache
+__pycache__
+**/__pycache__
+**/*.pyc
+
+# Datasets & experiment artifacts
+WaterMetricsDATA
+results
+Notebooks
+docs/superpowers
+
+# Training-only weights (we copy only the two winning weights explicitly in the Dockerfile)
+models/weights/*
+!models/weights/roi_yolo
+!models/weights/baseline_yolo
+models/checkpoints
+
+# Dev-only files
+**/*.ipynb
+.claude
+.cursor
+.vscode
+.idea
+scripts
+tests/__pycache__

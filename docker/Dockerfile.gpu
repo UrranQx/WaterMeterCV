@@ -1,0 +1,68 @@
+# syntax=docker/dockerfile:1.7
+# Water meter OCR — GPU-enabled FastAPI service.
+# torch cu130 wheels bundle their own CUDA runtime, so we don't need an
+# nvidia/cuda base image. Host needs nvidia-container-toolkit and `--gpus all`.
+#
+# Usage:
+#   docker build -f docker/Dockerfile.gpu -t watermetercv:gpu .
+#   docker run --gpus all -p 8000:8000 watermetercv:gpu
+ARG PYTHON_VERSION=3.13
+
+FROM python:${PYTHON_VERSION}-slim
+
+RUN apt-get update && apt-get install --no-install-recommends -y \
+        libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# CUDA torch wheels — same index that `uv sync --extra cuda` uses locally.
+RUN pip install --index-url https://download.pytorch.org/whl/cu130 \
+        "torch>=2.7.0" \
+        "torchvision>=0.22.0"
+
+# Same opencv-python → opencv-python-headless swap as in Dockerfile.cpu —
+# ultralytics' opencv-python dep would otherwise need libxcb/libgl at runtime.
+RUN pip install \
+        "ultralytics>=8.4.33" \
+        "numpy" \
+        "Pillow>=11.0.0" \
+        "shapely>=2.0.0" \
+        "fastapi>=0.115" \
+        "uvicorn[standard]>=0.30" \
+        "python-multipart>=0.0.9" \
+        "pydantic>=2.0" \
+    && pip uninstall -y opencv-python opencv-python-headless \
+    && pip install --no-deps "opencv-python-headless>=4.10"
+
+COPY pyproject.toml README.md /app/
+COPY src /app/src
+RUN pip install --no-deps /app
+
+COPY models/__init__.py /app/models/__init__.py
+COPY models/utils /app/models/utils
+COPY models/data /app/models/data
+
+COPY models/weights/roi_yolo/wm_yolo_roi_20260412_230832/weights/best.pt  /app/weights/roi.pt
+COPY models/weights/baseline_yolo/yolo11m_20260414_194809/weights/best.pt /app/weights/ocr.pt
+
+ENV PYTHONPATH=/app \
+    WATERMETERCV_ROI_WEIGHTS=/app/weights/roi.pt \
+    WATERMETERCV_OCR_WEIGHTS=/app/weights/ocr.pt \
+    WATERMETERCV_ROI_MODEL_NAME=wm_yolo_roi_20260412_230832 \
+    WATERMETERCV_OCR_MODEL_NAME=yolo11m_20260414_194809 \
+    WATERMETERCV_DEVICE=cuda:0 \
+    WATERMETERCV_HOST=0.0.0.0 \
+    WATERMETERCV_PORT=8000
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz',timeout=3).status==200 else 1)"
+
+CMD ["watermetercv-serve"]
