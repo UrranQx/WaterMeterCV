@@ -3,6 +3,7 @@
 .venv*/
 .vscode/
 .idea/
+.obsidian/
 models/weights/
 models/checkpoints/
 results/*.png
