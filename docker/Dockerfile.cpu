@@ -23,19 +23,26 @@ ENV PIP_NO_CACHE_DIR=1 \
 
 WORKDIR /app
 
-# CPU torch from PyPI (default index). Everything else is thin.
-RUN pip install \
+# torch from PyPI now bundles full CUDA runtime (~8 GB). We want a true CPU-only
+# image, so pull torch/torchvision from the dedicated CPU wheel index first.
+RUN pip install --index-url https://download.pytorch.org/whl/cpu \
         "torch>=2.11.0" \
-        "torchvision>=0.26.0" \
+        "torchvision>=0.26.0"
+
+# ultralytics declares opencv-python (not headless) as a dep. Install everything,
+# then swap opencv-python → opencv-python-headless so we don't need libxcb/libgl
+# in the runtime. cv2 import path resolves to whichever package owns /cv2 last.
+RUN pip install \
         "ultralytics>=8.4.33" \
-        "opencv-python-headless>=4.10" \
         "numpy" \
         "Pillow>=11.0.0" \
         "shapely>=2.0.0" \
         "fastapi>=0.115" \
         "uvicorn[standard]>=0.30" \
         "python-multipart>=0.0.9" \
-        "pydantic>=2.0"
+        "pydantic>=2.0" \
+    && pip uninstall -y opencv-python opencv-python-headless \
+    && pip install --no-deps "opencv-python-headless>=4.10"
 
 # Install the watermetercv package (without re-resolving deps).
 COPY pyproject.toml README.md /app/
@@ -54,6 +61,8 @@ COPY models/weights/baseline_yolo/yolo11m_20260414_194809/weights/best.pt /app/w
 ENV PYTHONPATH=/app \
     WATERMETERCV_ROI_WEIGHTS=/app/weights/roi.pt \
     WATERMETERCV_OCR_WEIGHTS=/app/weights/ocr.pt \
+    WATERMETERCV_ROI_MODEL_NAME=wm_yolo_roi_20260412_230832 \
+    WATERMETERCV_OCR_MODEL_NAME=yolo11m_20260414_194809 \
     WATERMETERCV_DEVICE=cpu \
     WATERMETERCV_HOST=0.0.0.0 \
     WATERMETERCV_PORT=8000

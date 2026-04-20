@@ -1370,15 +1370,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pip"
-version = "26.0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/48/83/0d7d4e9efe3344b8e2fe25d93be44f64b65364d3c8d7bc6dc90198d5422e/pip-26.0.1.tar.gz", hash = "sha256:c4037d8a277c89b320abe636d59f91e6d0922d08a05b60e85e53b296613346d8", size = 1812747, upload-time = "2026-02-05T02:20:18.702Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl", hash = "sha256:bdb1b08f4274833d62c1aa29e20907365a2ceb950410df15fc9521bad440122b", size = 1787723, upload-time = "2026-02-05T02:20:16.416Z" },
-]
-
-[[package]]
 name = "platformdirs"
 version = "4.9.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2669,18 +2660,11 @@ name = "watermetercv"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "albumentations" },
-    { name = "easyocr" },
-    { name = "ipykernel" },
-    { name = "matplotlib" },
+    { name = "numpy" },
     { name = "opencv-python" },
-    { name = "pandas" },
     { name = "pillow" },
-    { name = "pip" },
-    { name = "pytesseract" },
     { name = "pyyaml" },
     { name = "rapidfuzz" },
-    { name = "segmentation-models-pytorch" },
     { name = "shapely" },
     { name = "tqdm" },
     { name = "ultralytics" },
@@ -2700,6 +2684,15 @@ cuda = [
     { name = "torch" },
     { name = "torchvision" },
 ]
+research = [
+    { name = "albumentations" },
+    { name = "easyocr" },
+    { name = "ipykernel" },
+    { name = "matplotlib" },
+    { name = "pandas" },
+    { name = "pytesseract" },
+    { name = "segmentation-models-pytorch" },
+]
 service = [
     { name = "fastapi" },
     { name = "python-multipart" },
@@ -2708,6 +2701,7 @@ service = [
 test = [
     { name = "httpx" },
     { name = "pytest" },
+    { name = "requests" },
 ]
 transformers = [
     { name = "sentencepiece" },
@@ -2716,27 +2710,28 @@ transformers = [
 
 [package.metadata]
 requires-dist = [
-    { name = "albumentations", specifier = ">=2.0.0" },
     { name = "albumentations", marker = "extra == 'colab'", specifier = ">=2.0.0" },
-    { name = "easyocr", specifier = ">=1.7.2" },
+    { name = "albumentations", marker = "extra == 'research'", specifier = ">=2.0.0" },
+    { name = "easyocr", marker = "extra == 'research'", specifier = ">=1.7.2" },
     { name = "fastapi", marker = "extra == 'service'", specifier = ">=0.115" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
-    { name = "ipykernel", specifier = ">=7.2.0" },
-    { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "ipykernel", marker = "extra == 'research'", specifier = ">=7.2.0" },
+    { name = "matplotlib", marker = "extra == 'research'", specifier = ">=3.10.8" },
+    { name = "numpy", specifier = ">=2.0" },
     { name = "opencv-python", specifier = ">=4.10.0" },
     { name = "opencv-python", marker = "extra == 'colab'", specifier = ">=4.10.0" },
-    { name = "pandas", specifier = ">=3.0.2" },
+    { name = "pandas", marker = "extra == 'research'", specifier = ">=3.0.2" },
     { name = "pillow", specifier = ">=11.0.0" },
     { name = "pillow", marker = "extra == 'colab'", specifier = ">=11.0.0" },
-    { name = "pip", specifier = ">=26.0.1" },
-    { name = "pytesseract", specifier = ">=0.3.13" },
+    { name = "pytesseract", marker = "extra == 'research'", specifier = ">=0.3.13" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0.0" },
     { name = "python-multipart", marker = "extra == 'service'", specifier = ">=0.0.9" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "pyyaml", marker = "extra == 'colab'", specifier = ">=6.0" },
     { name = "rapidfuzz", specifier = ">=3.0.0" },
     { name = "rapidfuzz", marker = "extra == 'colab'", specifier = ">=3.0.0" },
-    { name = "segmentation-models-pytorch", specifier = ">=0.5.0" },
+    { name = "requests", marker = "extra == 'test'", specifier = ">=2.31.0" },
+    { name = "segmentation-models-pytorch", marker = "extra == 'research'", specifier = ">=0.5.0" },
     { name = "sentencepiece", marker = "extra == 'transformers'", specifier = ">=0.2.0" },
     { name = "shapely", specifier = ">=2.0.0" },
     { name = "shapely", marker = "extra == 'colab'", specifier = ">=2.0.0" },
@@ -2752,7 +2747,7 @@ requires-dist = [
     { name = "ultralytics", marker = "extra == 'colab'", specifier = ">=8.3.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'service'", specifier = ">=0.30" },
 ]
-provides-extras = ["test", "cuda", "service", "colab", "detectron2", "transformers", "craft"]
+provides-extras = ["test", "cuda", "service", "research", "colab", "detectron2", "transformers", "craft"]
 
 [[package]]
 name = "wcwidth"
