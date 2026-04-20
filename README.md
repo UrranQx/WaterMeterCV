@@ -209,7 +209,10 @@ curl http://localhost:8000/info
 
 ---
 
-## Разработка и research
+## Разработка и research  
+
+<img src="media/gifs/doctor-pigeon.gif" alt="RnD" width="80">
+
 
 ```
 WaterMeterCV/
