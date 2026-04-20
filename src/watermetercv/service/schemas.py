@@ -9,6 +9,10 @@ class PredictResponse(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="Mean confidence of kept digits")
 
 
+class RecognizeResponse(BaseModel):
+    value: int = Field(..., ge=0, description="Recognized meter reading as integer; leading zeros dropped")
+
+
 class HealthResponse(BaseModel):
     status: str
 

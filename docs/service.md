@@ -6,7 +6,47 @@
 
 ---
 
+## `POST /recognize`
+
+Основной эндпойнт для бэкенд-интеграции (контракт совместим с `meter-backend/RecognitionController`: multipart `file` → `Map<String, Integer>` с ключом `value`).
+
+- **Content-Type:** `multipart/form-data`
+- **Поле:** `file` — файл JPEG или PNG
+- **Лимит размера:** 10 MB (413 при превышении)
+
+### Пример запроса
+
+```bash
+curl -X POST -F "file=@meter.jpg" http://localhost:8000/recognize
+```
+
+### Ответ 200 OK
+
+```json
+{"value": 123456}
+```
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `value` | `int` | Показание счётчика как целое число. Ведущие нули пропадают (`"00123456"` → `123456`). |
+
+### Коды ошибок `/recognize`
+
+| Код | Причина | Тело |
+|---|---|---|
+| `400` | Пустой upload или не удалось декодировать изображение | `{"detail": "Failed to decode image"}` / `{"detail": "Empty upload"}` |
+| `413` | Файл больше 10 MB | `{"detail": "Image exceeds 10 MB limit"}` |
+| `422` | Нет multipart-поля `file`, **либо** пайплайн не нашёл ни одной цифры (ROI не найдена или OCR не дал детекций) | FastAPI validation-error / `{"detail": "No reading detected"}` |
+| `500` | Внутренняя ошибка | `{"detail": "Internal error: <ExceptionType>"}` |
+| `503` | Пайплайн ещё не инициализирован | `{"detail": "Pipeline not ready"}` |
+
+> 422 «No reading detected» требует явной обработки на стороне клиента: Java-Jackson `Map<String,Integer>` не распарсит ответ с `detail`, поэтому предполагается перехват HTTP-кода до десериализации.
+
+---
+
 ## `POST /predict`
+
+Internal / debug эндпойнт. Возвращает более богатый ответ (строка с ведущими нулями + confidence), используется нашим `scripts/bench_service.py` и для визуального дебага. Бэкенд-команда его не использует.
 
 Принимает изображение счётчика, возвращает распознанную строку цифр и усреднённый confidence.
 

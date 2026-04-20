@@ -39,6 +39,12 @@ docker run --rm --gpus all -p 8000:8000 watermetercv:gpu
 # Service regression bench (сравнение с single-stage research-пайплайном)
 uv run python scripts/bench_service.py --url http://localhost:8000 --tag cpu   # или --tag gpu
 # → results/service_bench_{cpu,gpu}.csv + console summary
+# Ключевая метрика: "docker vs single (same pred): 374/374" = пайплайн не сломался.
+# "exact match (raw): 0/374" — ожидаемо: GT без ведущих нулей, normalized = реальная точность.
+
+# Docker Hub push (после docker build)
+docker tag watermetercv:cpu urran/watermetercv:cpu && docker push urran/watermetercv:cpu
+docker tag watermetercv:gpu urran/watermetercv:gpu && docker push urran/watermetercv:gpu
 
 # Python REPL
 uv run python
@@ -119,7 +125,7 @@ Inference-only пакет, отдельный от research-кода.
 - `ocr/heuristics.py` — max-digits, overlap, last-drum, leading-zero, long-tail zero.
 - `ocr/priors.py` — `select_dual_orientation_with_priors`, red-bbox horizontal cluster.
 - `roi/yolo_roi.py` — `detect_roi_bbox` (imgsz=640, conf=0.001).
-- `service/app.py` — FastAPI, lifespan-loaded модели, `POST /predict`, `GET /healthz`, `GET /info`.
+- `service/app.py` — FastAPI, lifespan-loaded модели. `POST /recognize` (primary, backend-контракт: поле `file`, `{"value": int}`, 422 при no-detect). `POST /predict` (internal/debug: поле `image`, `{"digits", "confidence"}`). `GET /healthz`, `GET /info`.
 - `config.py` — env-based `ServiceConfig`.
 
 Env-переменные: `WATERMETERCV_ROI_WEIGHTS`, `WATERMETERCV_OCR_WEIGHTS`, `WATERMETERCV_ROI_MODEL_NAME`, `WATERMETERCV_OCR_MODEL_NAME`, `WATERMETERCV_DEVICE` (`cpu` | `cuda:0`), `WATERMETERCV_HOST`, `WATERMETERCV_PORT`.
@@ -129,6 +135,7 @@ Env-переменные: `WATERMETERCV_ROI_WEIGHTS`, `WATERMETERCV_OCR_WEIGHTS`
 Docker-образы собираются через `pip install` с явным списком inference-deps (не `uv sync`), чтобы не тащить research-стек. CPU ≈ 560 MB compressed, GPU ≈ 3.1 GB compressed. Веса запекаются в `/app/weights/`. Regression bench (`scripts/bench_service.py`) показывает 374/374 совпадений с research single-stage на test split.
 
 **Docker gotchas** (легко наступить при правке Dockerfile'ов):
+- **Windows port conflict**: на Windows два процесса могут слушать 0.0.0.0:8000 одновременно. После остановки `watermetercv-serve` убедись: `netstat -an | findstr ":8000"` — если stale python.exe → `taskkill //PID <pid> //F`.
 - `pip install torch` с default PyPI теперь тянет полный CUDA runtime (~8 GB) даже когда ты хотел CPU. Для CPU-образа обязательно `pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision` **до** всех остальных install.
 - `ultralytics` транзитивно ставит `opencv-python`, который перекрывает `opencv-python-headless` (оба пишутся в `/cv2/`). Runtime падает на `ImportError: libxcb.so.1`. Fix: после основного install — `pip uninstall -y opencv-python opencv-python-headless && pip install --no-deps opencv-python-headless`.
 - В Dockerfile прописаны env-переменные `WATERMETERCV_ROI_MODEL_NAME` / `WATERMETERCV_OCR_MODEL_NAME`, чтобы `/info` возвращал осмысленные имена моделей — flat-path `/app/weights/roi.pt` не даёт их авто-вывести.

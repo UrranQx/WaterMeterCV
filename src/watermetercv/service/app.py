@@ -1,7 +1,8 @@
 """FastAPI application exposing the water meter OCR pipeline.
 
 Endpoints:
-    POST /predict   multipart image  -> {digits, confidence}
+    POST /recognize multipart image (field `file`)  -> {value: int}
+    POST /predict   multipart image (field `image`) -> {digits, confidence}
     GET  /healthz   ping
     GET  /info      model versions and device
 
@@ -23,7 +24,12 @@ from fastapi.responses import JSONResponse
 
 from watermetercv.config import load_config
 from watermetercv.pipeline import WaterMeterOCR
-from watermetercv.service.schemas import HealthResponse, InfoResponse, PredictResponse
+from watermetercv.service.schemas import (
+    HealthResponse,
+    InfoResponse,
+    PredictResponse,
+    RecognizeResponse,
+)
 
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
@@ -55,6 +61,17 @@ def _decode_image(data: bytes) -> np.ndarray:
     return image
 
 
+async def _validate_and_decode(upload: UploadFile) -> np.ndarray:
+    if _pipeline is None:
+        raise HTTPException(status_code=503, detail="Pipeline not ready")
+    data = await upload.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty upload")
+    if len(data) > _MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Image exceeds 10 MB limit")
+    return _decode_image(data)
+
+
 @app.get("/healthz", response_model=HealthResponse)
 def healthz() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -70,21 +87,29 @@ def info() -> InfoResponse:
 
 
 @app.post(
+    "/recognize",
+    response_model=RecognizeResponse,
+    responses={
+        400: {"description": "Invalid image"},
+        413: {"description": "Image too large"},
+        422: {"description": "No reading detected"},
+    },
+)
+async def recognize(file: UploadFile = File(..., description="JPEG or PNG image")) -> RecognizeResponse:
+    image_bgr = await _validate_and_decode(file)
+    result = _pipeline.predict(image_bgr)
+    if not result.digits:
+        raise HTTPException(status_code=422, detail="No reading detected")
+    return RecognizeResponse(value=int(result.digits))
+
+
+@app.post(
     "/predict",
     response_model=PredictResponse,
     responses={400: {"description": "Invalid image"}, 413: {"description": "Image too large"}},
 )
 async def predict(image: UploadFile = File(..., description="JPEG or PNG image")) -> PredictResponse:
-    if _pipeline is None:
-        raise HTTPException(status_code=503, detail="Pipeline not ready")
-
-    data = await image.read()
-    if not data:
-        raise HTTPException(status_code=400, detail="Empty upload")
-    if len(data) > _MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail="Image exceeds 10 MB limit")
-
-    image_bgr = _decode_image(data)
+    image_bgr = await _validate_and_decode(image)
     result = _pipeline.predict(image_bgr)
     return PredictResponse(digits=result.digits, confidence=round(result.confidence, 4))
 

@@ -10,6 +10,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--v3-blue)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-cpu%20%7C%20gpu-2496ED?logo=docker&logoColor=white)](docker/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Docker Hub](https://img.shields.io/badge/docker%20hub-urran%2Fwatermetercv-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/urran/watermetercv)
 
 
 </div>
@@ -72,9 +73,30 @@ flowchart TD
 
 ## Быстрый старт
 
-Три сценария — во всех поднимается HTTP-сервер на `:8000`, endpoint `POST /predict`.
+Четыре сценария — во всех поднимается HTTP-сервер на `:8000`, основной endpoint `POST /recognize`.
 
-### 1. Локально (uv)
+### 0. Docker Hub — без сборки (быстрый старт для тестирования)
+
+```bash
+# CPU
+docker pull urran/watermetercv:cpu
+docker run --rm -p 8000:8000 urran/watermetercv:cpu
+
+# GPU (нужен nvidia-container-toolkit)
+docker pull urran/watermetercv:gpu
+docker run --rm --gpus all -p 8000:8000 urran/watermetercv:gpu
+```
+
+```bash
+# Проверка
+curl http://localhost:8000/healthz
+# {"status":"ok"}
+
+curl -F "file=@meter.jpg" http://localhost:8000/recognize
+# {"value": 17688}
+```
+
+### 1. Локально (uv) — для разработки
 
 ```bash
 # CPU
@@ -86,14 +108,14 @@ uv sync --extra service --extra cuda
 WATERMETERCV_DEVICE=cuda:0 uv run watermetercv-serve
 ```
 
-### 2. Docker — CPU
+### 2. Docker — CPU (локальная сборка)
 
 ```bash
 docker build -f docker/Dockerfile.cpu -t watermetercv:cpu .
 docker run --rm -p 8000:8000 watermetercv:cpu
 ```
 
-### 3. Docker — GPU
+### 3. Docker — GPU (локальная сборка)
 
 > [!TIP]
 > На хосте нужен [`nvidia-container-toolkit`](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
@@ -117,7 +139,21 @@ docker compose -f docker/docker-compose.yml --profile gpu up --build
 
 ## API
 
+### `POST /recognize`
+
+Основной эндпойнт для бэкенд-интеграции — совместим с `meter-backend/RecognitionController` (multipart `file` → `Map<String, Integer>`).
+
+```bash
+curl -F "file=@meter.jpg" http://localhost:8000/recognize
+```
+
+```json
+{"value": 123456}
+```
+
 ### `POST /predict`
+
+Internal / debug эндпойнт: отдаёт строку цифр с ведущими нулями + confidence. Используется нашим bench-скриптом.
 
 ```bash
 curl -F "image=@meter.jpg" http://localhost:8000/predict
@@ -139,10 +175,10 @@ curl http://localhost:8000/info
 
 | Код | Причина |
 |---|---|
-| `200` | OK — digits + confidence |
+| `200` | OK |
 | `400` | Битое или пустое изображение |
 | `413` | Файл больше 10 MB |
-| `422` | Нет поля `image` в форме |
+| `422` | Нет поля `file` / `image` — или для `/recognize` пайплайн не нашёл цифр |
 | `500` | Внутренняя ошибка |
 | `503` | Pipeline ещё не готов |
 

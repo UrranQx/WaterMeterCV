@@ -81,3 +81,49 @@ def test_predict_rejects_non_image(client):
 def test_predict_requires_file(client):
     resp = client.post("/predict")
     assert resp.status_code == 422
+
+
+def test_recognize_happy_path(client):
+    img_path = _sample_image_path()
+    with open(img_path, "rb") as f:
+        resp = client.post("/recognize", files={"file": (img_path.name, f, "image/jpeg")})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert isinstance(body["value"], int)
+    assert body["value"] >= 0
+
+    with open(img_path, "rb") as f:
+        predict_resp = client.post("/predict", files={"image": (img_path.name, f, "image/jpeg")})
+    assert predict_resp.status_code == 200
+    predict_body = predict_resp.json()
+    if predict_body["digits"]:
+        assert body["value"] == int(predict_body["digits"])
+
+
+def test_recognize_rejects_non_image(client):
+    resp = client.post(
+        "/recognize",
+        files={"file": ("hello.txt", b"not an image at all", "text/plain")},
+    )
+    assert resp.status_code == 400
+
+
+def test_recognize_requires_file(client):
+    resp = client.post("/recognize")
+    assert resp.status_code == 422
+
+
+def test_recognize_no_detection(client, monkeypatch):
+    import watermetercv.service.app as app_module
+    from watermetercv.pipeline import OcrResult
+
+    monkeypatch.setattr(
+        app_module._pipeline,
+        "predict",
+        lambda _img: OcrResult(digits="", confidence=0.0, selected_angle=0),
+    )
+    img_path = _sample_image_path()
+    with open(img_path, "rb") as f:
+        resp = client.post("/recognize", files={"file": (img_path.name, f, "image/jpeg")})
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "No reading detected"
