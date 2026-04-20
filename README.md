@@ -12,6 +12,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Docker Hub](https://img.shields.io/badge/docker%20hub-urran%2Fwatermetercv-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/urran/watermetercv)
 
+<img src="media/gifs/meme.jpeg" alt="WaterMeterCV-main-image" width="500">
 
 </div>
 
@@ -23,7 +24,7 @@
   - [Оглавление](#оглавление)
   - [Статус и метрики](#статус-и-метрики)
   - [Пайплайн](#пайплайн)
-  - [Быстрый старт](#быстрый-старт)
+  - [Quick Start](#quick-start)
     - [0. Docker Hub — без сборки (быстрый старт для тестирования)](#0-docker-hub--без-сборки-быстрый-старт-для-тестирования)
     - [1. Локально (uv) — для разработки](#1-локально-uv--для-разработки)
     - [2. Docker — CPU (локальная сборка)](#2-docker--cpu-локальная-сборка)
@@ -42,13 +43,16 @@
 
 Research-фаза завершена — выигравший пайплайн зафиксирован и упакован в FastAPI-сервис.
 
+<img src="media/gifs/mater-мэтр.gif" alt="WTF is this" width="400">
+
+
 | Метрика | Значение | Модель |
 |---|---|---|
 | ROI IoU (WaterMeterDataset, test) | **0.94** | YOLO11n |
 | ROI detection rate | **100 %** | YOLO11n |
 | OCR FSA norm (test split) | **87.7 %** | YOLO11m |
 | Inference time (CPU, warm) | **~36 ms / фото** | YOLO11m |
-| Service bench vs research pipeline | **374 / 374** | — |
+
 
 ---
 
@@ -67,13 +71,13 @@ flowchart TD
 ![Image showing the ROI - bbox pipeline](media/images/BBox-debug-pipeline.png)
 ![Image showing the OCR pipeline](media/images/OCR-pipeline.png)
 > [!NOTE]
-> Канонические эвристики и параметры прайоров —
+> Канонические эвристики и параметры прайоров/приоритетов —
 > [`Notebooks/03_ocr/00_pretrained_ocr_yolo11m.ipynb`](Notebooks/03_ocr/00_pretrained_ocr_yolo11m.ipynb).
 > Детали ROI-исследования — [`docs/notes/roi-detection-findings.md`](docs/notes/roi-detection-findings.md).
 
 ---
 
-## Быстрый старт
+## Quick Start
 
 Четыре сценария — во всех поднимается HTTP-сервер на `:8000`, основной endpoint `POST /recognize`.
 
@@ -122,6 +126,7 @@ docker run --rm -p 8000:8000 watermetercv:cpu
 > [!TIP]
 > На хосте нужен [`nvidia-container-toolkit`](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
 
+
 ```bash
 docker build -f docker/Dockerfile.gpu -t watermetercv:gpu .
 docker run --rm --gpus all -p 8000:8000 watermetercv:gpu
@@ -129,6 +134,8 @@ docker run --rm --gpus all -p 8000:8000 watermetercv:gpu
 
 <details>
 <summary><b>Через docker compose</b></summary>
+
+<img src="media/gifs/martinez-ctrlc-ctrlv-save-the-pesh.gif" alt="Docker-build" width="500">
 
 ```bash
 docker compose -f docker/docker-compose.yml --profile cpu up --build
@@ -242,7 +249,7 @@ python scripts/bench_service.py --url http://localhost:8000 --tag cpu
 Код и веса моделей — **[AGPL-3.0](LICENSE)**.
 
 > [!WARNING]
-> <img src="media/gifs/4x.avif" alt="WaterMeterCV pipeline demo" width="128">
+> <img src="media/gifs/4x.avif" alt="WaterMeterCV-license-problem" width="128">
 > 
 > Учебный проект. ROI-детектор обучен на датасете под **CC BY-NC-ND 4.0**
 > (Kucev Roman / tapakah68, Kaggle) — **коммерческое использование запрещено**
