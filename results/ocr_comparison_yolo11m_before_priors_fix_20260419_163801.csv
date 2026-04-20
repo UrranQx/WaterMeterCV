@@ -1,0 +1,2 @@
+method,wm_poly_fsa_raw,wm_poly_fsa_norm,wm_poly_pda,wm_poly_cer,wm_poly_ms,wm_bbox_fsa_raw,wm_bbox_fsa_norm,wm_bbox_pda,wm_bbox_cer,wm_bbox_ms,run_date
+pretrained_ultralytics_yolo11m_baseline_yolo11m,0.008021390374331552,0.6978609625668449,0.0753310415075121,0.5237967914438503,28.282792246062595,0.0,0.8475935828877005,0.06277692895339954,0.48280494015788133,26.427751604241685,2026-04-19 16:17

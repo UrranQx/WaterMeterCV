@@ -1,0 +1,31 @@
+# Локальный запуск. Выбор сборки через profile:
+#   docker compose --profile cpu up --build
+#   docker compose --profile gpu up --build
+
+services:
+  watermetercv-cpu:
+    profiles: ["cpu"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.cpu
+    image: watermetercv:cpu
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  watermetercv-gpu:
+    profiles: ["gpu"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gpu
+    image: watermetercv:gpu
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

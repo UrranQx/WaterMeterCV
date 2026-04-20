@@ -1,3 +1,9 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(uv run:*)"
+    ]
+  },
   "prefersReducedMotion": false
 }

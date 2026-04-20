@@ -1,0 +1,25 @@
+{
+  "method": "yolo_roi",
+  "model_size": "yolo11n",
+  "utility_meter": {
+    "mean_iou": 0.0,
+    "detection_rate": 0.0,
+    "avg_inference_ms": 69.4,
+    "n_train": 45,
+    "n_test": 6
+  },
+  "water_meter": {
+    "mean_iou": 0.94,
+    "detection_rate": 1.0,
+    "avg_inference_ms": 22.9,
+    "n_train": 870,
+    "n_test": 374
+  },
+  "config": {
+    "epochs": 50,
+    "batch_size": 16,
+    "img_size": 640,
+    "patience": 10
+  },
+  "run_date": "2026-04-13T00:16:57.664564"
+}
