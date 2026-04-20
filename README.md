@@ -86,11 +86,11 @@ flowchart TD
 ```bash
 # CPU
 docker pull urran/watermetercv:cpu
-docker run --rm -p 8000:8000 urran/watermetercv:cpu
+docker run --rm -p 8000:8000 --name wmcv-cpu urran/watermetercv:cpu
 
 # GPU (нужен nvidia-container-toolkit)
 docker pull urran/watermetercv:gpu
-docker run --rm --gpus all -p 8000:8000 urran/watermetercv:gpu
+docker run --rm --gpus all -p 8000:8000 --name wmcv-gpu urran/watermetercv:gpu
 ```
 
 ```bash
@@ -118,7 +118,7 @@ WATERMETERCV_DEVICE=cuda:0 uv run watermetercv-serve
 
 ```bash
 docker build -f docker/Dockerfile.cpu -t watermetercv:cpu .
-docker run --rm -p 8000:8000 watermetercv:cpu
+docker run --rm -p 8000:8000 --name wmcv-cpu watermetercv:cpu
 ```
 
 ### 3. Docker — GPU (локальная сборка)
@@ -129,7 +129,7 @@ docker run --rm -p 8000:8000 watermetercv:cpu
 
 ```bash
 docker build -f docker/Dockerfile.gpu -t watermetercv:gpu .
-docker run --rm --gpus all -p 8000:8000 watermetercv:gpu
+docker run --rm --gpus all -p 8000:8000 --name wmcv-gpu watermetercv:gpu
 ```
 
 <details>
