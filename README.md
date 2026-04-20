@@ -83,18 +83,34 @@ flowchart TD
 
 ### 0. Docker Hub — без сборки (быстрый старт для тестирования)
 
+Выбор тега по платформе:
+
+| Платформа | Тег | Команда pull |
+|---|---|---|
+| Linux x86_64, Windows (Docker Desktop), Intel Mac | `:cpu` | `docker pull urran/watermetercv:cpu` |
+| macOS Apple Silicon (M1–M4), Linux arm64 | `:cpu-arm64` | `docker pull urran/watermetercv:cpu-arm64` |
+| Linux x86_64 + NVIDIA GPU | `:gpu` | `docker pull urran/watermetercv:gpu` |
+
 ```bash
-# CPU
+# CPU (x86_64 — Linux, Windows, Intel Mac)
 docker pull urran/watermetercv:cpu
 docker run --rm -p 8000:8000 --name wmcv-cpu urran/watermetercv:cpu
+
+# CPU (Apple Silicon — M1/M2/M3/M4; Linux arm64)
+docker pull urran/watermetercv:cpu-arm64
+docker run --rm -p 8000:8000 --name wmcv-arm urran/watermetercv:cpu-arm64
 
 # GPU (нужен nvidia-container-toolkit)
 docker pull urran/watermetercv:gpu
 docker run --rm --gpus all -p 8000:8000 --name wmcv-gpu urran/watermetercv:gpu
 ```
 
+> [!TIP]
+> На Mac Apple Silicon берите именно `:cpu-arm64` — это нативная aarch64-сборка, без Rosetta 2 overhead.
+> Образ `:cpu` (amd64) на M-series запустится через Rosetta, но заметно медленнее.
+
 ```bash
-# Проверка
+# Проверка (любой тег)
 curl http://localhost:8000/healthz
 # {"status":"ok"}
 

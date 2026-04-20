@@ -1,0 +1,83 @@
+# syntax=docker/dockerfile:1.7
+# Water meter OCR — CPU-only FastAPI service, linux/arm64 build (Apple Silicon).
+# Build:
+#   docker buildx build --platform linux/arm64 -f docker/Dockerfile.cpu.arm64 -t watermetercv:cpu-arm64 --load .
+# Push:
+#   docker buildx build --platform linux/arm64 -f docker/Dockerfile.cpu.arm64 -t urran/watermetercv:cpu-arm64 --push .
+#
+
+ARG PYTHON_VERSION=3.13
+
+FROM python:${PYTHON_VERSION}-slim
+
+# libglib2.0 — единственная native-зависимость opencv-python-headless в runtime.
+RUN apt-get update && apt-get install --no-install-recommends -y \
+        libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+
+RUN pip install \
+        "torch>=2.11.0" \
+        "torchvision>=0.26.0" \
+    && pip install \
+        "numpy>=2.0" \
+        "typing-extensions>=4" \
+        "filelock" \
+        "jinja2" \
+        "networkx" \
+        "fsspec" \
+        "sympy" \
+        "mpmath" \
+        "Pillow>=11.0.0" \
+        "setuptools"
+
+# Same ultralytics install + opencv-python-headless swap as in Dockerfile.cpu.
+# ultralytics tranzitive тянет opencv-python, который перекрывает headless; чиним.
+RUN pip install \
+        "ultralytics>=8.4.33" \
+        "numpy" \
+        "Pillow>=11.0.0" \
+        "shapely>=2.0.0" \
+        "fastapi>=0.115" \
+        "uvicorn[standard]>=0.30" \
+        "python-multipart>=0.0.9" \
+        "pydantic>=2.0" \
+    && pip uninstall -y opencv-python opencv-python-headless \
+    && pip install --no-deps "opencv-python-headless>=4.10"
+
+# Install the watermetercv package (without re-resolving deps).
+COPY pyproject.toml README.md /app/
+COPY src /app/src
+RUN pip install --no-deps /app
+
+# Runtime-only subset of the models/ sibling package (used for crop + dual-read helpers).
+COPY models/__init__.py /app/models/__init__.py
+COPY models/utils /app/models/utils
+COPY models/data /app/models/data
+
+# Weights (only the two winning ones baked in).
+COPY models/weights/roi_yolo/wm_yolo_roi_20260412_230832/weights/best.pt  /app/weights/roi.pt
+COPY models/weights/baseline_yolo/yolo11m_20260414_194809/weights/best.pt /app/weights/ocr.pt
+
+ENV PYTHONPATH=/app \
+    WATERMETERCV_ROI_WEIGHTS=/app/weights/roi.pt \
+    WATERMETERCV_OCR_WEIGHTS=/app/weights/ocr.pt \
+    WATERMETERCV_ROI_MODEL_NAME=wm_yolo_roi_20260412_230832 \
+    WATERMETERCV_OCR_MODEL_NAME=yolo11m_20260414_194809 \
+    WATERMETERCV_DEVICE=cpu \
+    WATERMETERCV_HOST=0.0.0.0 \
+    WATERMETERCV_PORT=8000
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz',timeout=3).status==200 else 1)"
+
+CMD ["watermetercv-serve"]
